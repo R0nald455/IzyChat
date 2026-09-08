@@ -160,8 +160,8 @@ html {
   --link: var(--blue-600);
   --link-hover: var(--blue-700);
   --link-visited: 147 51 234;
-  --accent-primary: 18 110 107;
-  --accent-primary-hover: 10 79 83;
+  --accent-primary: 63 176 229;
+  --accent-primary-hover: 45 154 212;
   --ring-primary: var(--gray-500);
   --header-primary: var(--white);
   --header-hover: var(--gray-50);
@@ -180,8 +180,8 @@ html {
   --surface-tertiary-alt: var(--white);
   --surface-dialog: var(--white);
   --surface-overlay: var(--gray-500);
-  --surface-submit: var(--green-700);
-  --surface-submit-hover: var(--green-800);
+  --surface-submit: 63 176 229;
+  --surface-submit-hover: 45 154 212;
   --surface-destructive: var(--red-700);
   --surface-destructive-hover: var(--red-800);
   --surface-chat: var(--white);
@@ -270,8 +270,8 @@ html {
   --link: var(--blue-400);
   --link-hover: var(--blue-300);
   --link-visited: 192 132 252;
-  --accent-primary: 65 167 157;
-  --accent-primary-hover: 109 200 185;
+  --accent-primary: 63 176 229;
+  --accent-primary-hover: 45 154 212;
   --header-primary: var(--gray-700);
   --header-hover: var(--gray-600);
   --header-button-hover: var(--gray-700);
@@ -289,8 +289,8 @@ html {
   --surface-tertiary-alt: var(--gray-700);
   --surface-dialog: var(--gray-875);
   --surface-overlay: 0 0 0;
-  --surface-submit: var(--green-700);
-  --surface-submit-hover: var(--green-800);
+  --surface-submit: 63 176 229;
+  --surface-submit-hover: 45 154 212;
   --surface-destructive: var(--red-800);
   --surface-destructive-hover: var(--red-900);
   --surface-chat: var(--gray-700);
@@ -1201,12 +1201,12 @@ button {
 .btn-primary {
   --tw-bg-opacity: 1;
   --tw-text-opacity: 1;
-  background-color: rgba(16, 163, 127, var(--tw-bg-opacity));
+  background-color: rgba(63, 176, 229, var(--tw-bg-opacity));
   color: rgba(255, 255, 255, var(--tw-text-opacity));
 }
 .btn-primary:hover {
   --tw-bg-opacity: 1;
-  background-color: rgba(26, 127, 100, var(--tw-bg-opacity));
+  background-color: rgba(45, 154, 212, var(--tw-bg-opacity));
 }
 .btn-primary:focus {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width)
@@ -1223,15 +1223,15 @@ button {
 }
 .btn-primary.focus-visible {
   --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(25, 195, 125, var(--tw-ring-opacity));
+  --tw-ring-color: rgba(63, 176, 229, var(--tw-ring-opacity));
 }
 .btn-primary:focus-visible {
   --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(25, 195, 125, var(--tw-ring-opacity));
+  --tw-ring-color: rgba(63, 176, 229, var(--tw-ring-opacity));
 }
 .btn-primary:disabled:hover {
   --tw-bg-opacity: 1;
-  background-color: rgba(16, 163, 127, var(--tw-bg-opacity));
+  background-color: rgba(63, 176, 229, var(--tw-bg-opacity));
 }
 .btn-secondary {
   --tw-border-opacity: 1;

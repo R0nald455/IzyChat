@@ -178,7 +178,7 @@ mcpServers:
 
 # Custom interface configuration
 interface:
-  customWelcome: 'Hola, soy IZYBOT. ¿En qué puedo ayudarte?'
+  # customWelcome: 'Hola, soy IZYBOT. ¿En qué puedo ayudarte?'
   # Enable/disable file search as a chatarea selection (default: true)
   # Note: This setting does not disable the Agents File Search Capability.
   # To disable the Agents Capability, see the Agents Endpoint configuration instead.
@@ -189,7 +189,16 @@ interface:
     #openNewTab: true
 
 
+  # 🤖🤖🤖🤖🤖🤖🤖🤖
+  # FOOTER CONFIGURATION
+  privacyPolicy:
+    externalUrl: "https://qvisiontechnologies.com/politica/"
+    openNewTab: true
+  termsOfService:
+    externalUrl: "https://bucket-izytesting.s3.us-east-2.amazonaws.com/TyC+IzyTesting+V2.pdf"
+    openNewTab: true
 
+  # 🤖🤖🤖🤖🤖🤖🤖🤖
 
 
   # Terms of service
@@ -1325,14 +1334,6 @@ endpoints:
 #         regex: "sk-ant-[A-Za-z0-9_-]{20,}"
 
 
-modelSpecs:
-  enforce: true
-  prioritize: true
 
-  list:
-    - name: izybot
-      label: IZYBOT
-      default: true
-      preset:
-        endpoint: agents
-        agent_id: agent_NIFuU7BC67p-Kq6A7M5bf
+# Nuevo
+

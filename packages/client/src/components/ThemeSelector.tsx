@@ -53,49 +53,7 @@ const Theme = ({ theme, onChange }: { theme: string; onChange: (value: string) =
 };
 
 const ThemeSelector = ({ returnThemeOnly }: { returnThemeOnly?: boolean }): JSX.Element => {
-  const { theme, setTheme } = useContext(ThemeContext);
-  const [announcement, setAnnouncement] = useState('');
-  const localize = useLocalize();
-
-  const changeTheme = useCallback(
-    (value: string) => {
-      const now = Date.now();
-      if (typeof window.lastThemeChange === 'number' && now - window.lastThemeChange < 500) {
-        return;
-      }
-      window.lastThemeChange = now;
-
-      setTheme(value);
-      setAnnouncement(
-        isDark(value)
-          ? localize('com_ui_dark_theme_enabled')
-          : localize('com_ui_light_theme_enabled'),
-      );
-    },
-    [setTheme, localize],
-  );
-
-  useEffect(() => {
-    if (announcement) {
-      const timeout = setTimeout(() => setAnnouncement(''), 1000);
-      return () => clearTimeout(timeout);
-    }
-  }, [announcement]);
-
-  if (returnThemeOnly === true) {
-    return <Theme theme={theme} onChange={changeTheme} />;
-  }
-
-  return (
-    <div className="flex flex-col items-center justify-center bg-surface-primary pt-6 sm:pt-0">
-      <div className="absolute bottom-0 left-0 m-4">
-        <Theme theme={theme} onChange={changeTheme} />
-      </div>
-      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
-        {announcement}
-      </div>
-    </div>
-  );
+  return <></>;
 };
 
 export default ThemeSelector;

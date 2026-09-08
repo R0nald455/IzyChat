@@ -16,7 +16,7 @@ import { useChatContext, useAgentsMapContext, useAssistantsMapContext } from '~/
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { useLocalize, useAuthContext, useGreeting } from '~/hooks';
 import AgentContact from '~/components/Agents/AgentContact';
-import ConvoIcon from '~/components/Endpoints/ConvoIcon';
+
 import temporaryStore from '~/store/temporary';
 
 const containerClassName =
@@ -33,11 +33,11 @@ function getTextSizeClass(text: string | undefined | null) {
   }
 
   if (text.length < 56) {
-    return 'text-2xl sm:text-4xl';
+    return 'text-xl sm:text-2xl';
   }
 
   if (text.length < 70) {
-    return 'text-xl sm:text-2xl';
+    return 'text-lg sm:text-base';
   }
 
   return 'text-lg sm:text-base';
@@ -157,21 +157,16 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
         <div
           className={`flex ${textHasMultipleLines ? 'flex-col' : 'flex-col md:flex-row'} items-center justify-center gap-2`}
         >
-          <div className={`relative size-10 justify-center ${textHasMultipleLines ? 'mb-2' : ''}`}>
+          <div className={`relative justify-center ${textHasMultipleLines ? 'mb-2' : ''}`}>
             {isTemporary ? (
               <div className={containerClassName}>
                 <MessageCircleDashed className="h-2/3 w-2/3 text-text-primary" aria-hidden="true" />
               </div>
             ) : (
-              <ConvoIcon
-                agentsMap={agentsMap}
-                assistantMap={assistantMap}
-                conversation={conversation}
-                endpointsConfig={endpointsConfig}
-                containerClassName={containerClassName}
-                context="landing"
-                className="h-2/3 w-2/3 text-text-primary"
-                size={41}
+              <img
+                src="/assets/botSaludo.svg"
+                alt="IzyBot"
+                className="h-16 w-16 object-contain"
               />
             )}
             {startupConfig?.showBirthdayIcon && (

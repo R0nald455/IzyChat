@@ -13,8 +13,11 @@
 
 services:
 
-        
   api:
+    image: librechat
+    build:
+      context: .
+      target: node
     extra_hosts:
         - "host.docker.internal:host-gateway"
     depends_on:
@@ -22,7 +25,7 @@ services:
       - rag_api
       - playwright-mcp
     volumes:
-    - C:/Users/RonaldDavidCharariPa/Documents/izyMCP/izytesting-mcp:/app/izytesting-mcp:ro
+    - C:\Users\AndresDanielHerrera\Documents\izychat-\izytesting-mcp:/app/izytesting-mcp:ro
     - type: bind
       source: ./librechat.yaml
       target: /app/librechat.yaml

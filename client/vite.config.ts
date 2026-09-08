@@ -141,8 +141,8 @@ export default defineConfig(({ command }) => ({
       },
       includeAssets: [],
       manifest: {
-        name: 'LibreChat',
-        short_name: 'LibreChat',
+        name: 'IzyBot',
+        short_name: 'IzyBot',
         display: 'standalone',
         background_color: '#000000',
         theme_color: '#009688',

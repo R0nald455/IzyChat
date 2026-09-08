@@ -19,8 +19,8 @@ export const defaultTheme: IThemeRGB = {
   'rgb-link': '37 99 235', // #2563eb (blue-600)
   'rgb-link-hover': '29 78 216', // #1d4ed8 (blue-700)
   'rgb-link-visited': '147 51 234', // #9333ea (purple-600)
-  'rgb-accent-primary': '18 110 107', // #126e6b
-  'rgb-accent-primary-hover': '10 79 83', // #0a4f53
+  'rgb-accent-primary': '63 176 229', // #3fb0e5
+  'rgb-accent-primary-hover': '45 154 212', // #2d9ad4
 
   // Ring colors
   'rgb-ring-primary': '89 89 89', // #595959 (gray-500)
@@ -45,8 +45,8 @@ export const defaultTheme: IThemeRGB = {
   'rgb-surface-tertiary-alt': '255 255 255', // #fff (white)
   'rgb-surface-dialog': '255 255 255', // #fff (white)
   'rgb-surface-overlay': '89 89 89', // #595959 (gray-500)
-  'rgb-surface-submit': '4 120 87', // #047857 (green-700)
-  'rgb-surface-submit-hover': '6 95 70', // #065f46 (green-800)
+  'rgb-surface-submit': '63 176 229', // #3fb0e5
+  'rgb-surface-submit-hover': '45 154 212', // #2d9ad4
   'rgb-surface-destructive': '185 28 28', // #b91c1c (red-700)
   'rgb-surface-destructive-hover': '153 27 27', // #991b1b (red-800)
   'rgb-surface-chat': '255 255 255', // #fff (white)
