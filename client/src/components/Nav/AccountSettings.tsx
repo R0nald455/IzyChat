@@ -151,12 +151,12 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
             <DropdownMenuSeparator />
           </>
         )}
-        <HelpSubmenu
+        {/* <HelpSubmenu
           helpAndFaqURL={startupConfig?.helpAndFaqURL}
           termsOfServiceURL={startupConfig?.interface?.termsOfService?.externalUrl}
           privacyPolicyURL={startupConfig?.interface?.privacyPolicy?.externalUrl}
           onShowShortcuts={() => setShowShortcutsDialog(true)}
-        />
+        /> */}
         <Menu.MenuItem onClick={() => setShowArchived(true)} className="select-item text-sm">
           <Archive className="icon-md" aria-hidden="true" />
           {localize('com_nav_archived_chats')}
@@ -169,11 +169,11 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        <DropdownMenuSeparator />
+        {/* <DropdownMenuSeparator />
         <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
           <LogOut className="icon-md" aria-hidden="true" />
           {localize('com_nav_log_out')}
-        </Menu.MenuItem>
+        </Menu.MenuItem> */}
       </Menu.Menu>
       {showArchived && (
         <ArchivedChatsModal
