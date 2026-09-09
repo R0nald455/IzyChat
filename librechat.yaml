@@ -138,16 +138,15 @@ mcpServers:
     description: Requerimientos, casos, bugs y automatización de IzyTesting
     type: stdio
     startup: false
-    command: node
+    command: npx
     args:
-      - /app/izytesting-mcp/bin/izytesting-mcp.js
+      - -y
+      - "@izytesting/izytesting-mcp@0.1.1-beta.0"
     timeout: 120000
     initTimeout: 30000
     env:
       IZYTESTING_URL: "{{IZYTESTING_URL}}"
       IZYTESTING_TOKEN: "{{IZYTESTING_TOKEN}}"
-      IZYTESTING_ORG: "{{IZYTESTING_ORG}}"
-      IZYTESTING_PROJECT: "{{IZYTESTING_PROJECT}}"
     customUserVars:
       IZYTESTING_URL:
         title: URL de IzyTesting
@@ -155,17 +154,9 @@ mcpServers:
         sensitive: false
       IZYTESTING_TOKEN:
         title: Token personal
-        description: JWT de tu sesión (Authorization sin el prefijo Bearer). Nunca uses IZY_AGENT_KEY.
+        description: MCP key para autenticar con IzyTesting,
         sensitive: true
-      IZYTESTING_ORG:
-        title: Organización
-        description: ID de la organización
-        sensitive: false
-      IZYTESTING_PROJECT:
-        title: Proyecto (opcional)
-        description: ID del proyecto por defecto. Puede quedar vacío.
-        sensitive: false
-
+ 
   playwright:
     type: streamable-http
     url: http://playwright-mcp:8931/mcp
@@ -338,12 +329,8 @@ registration:
 
 # Example Balance settings
 balance:
-   enabled: true
-   startBalance: 20000
-   autoRefillEnabled: false
-   refillIntervalValue: 30
-   refillIntervalUnit: 'days'
-   refillAmount: 20000
+   enabled: false
+
 
 # Example Transactions settings
 # Controls whether to save transaction records to the database
