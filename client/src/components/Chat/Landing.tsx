@@ -85,10 +85,19 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
 
   const brandedSpecLabel = modelSpec?.showOnLanding ? modelSpec.label : '';
   const brandedSpecDescription = (modelSpec?.showOnLanding && modelSpec.description) || '';
-  const name = isTemporary ? '' : (entity?.name ?? brandedSpecLabel);
+  /* Agent identity stays hidden on the landing: the greeting is shown instead,
+     no matter which agent is selected. Assistants and `showOnLanding`
+     spec branding keep their behavior. */
+  const hideAgentIdentity = isAgent;
+  const name = isTemporary
+    ? ''
+    : ((hideAgentIdentity ? undefined : entity?.name) ?? brandedSpecLabel);
   const description = isTemporary
     ? localize('com_ui_temporary_description')
-    : ((entity?.description || brandedSpecDescription || conversation?.greeting) ?? '');
+    : (((hideAgentIdentity ? undefined : entity?.description) ||
+        brandedSpecDescription ||
+        conversation?.greeting) ??
+      '');
   const descriptionIsHTML = description.trim().startsWith('<');
 
   const sanitizeDescription = useMemo(
@@ -224,7 +233,7 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
               {description}
             </div>
           ))}
-        {selectedAgent && !isTemporary && (
+        {selectedAgent && !hideAgentIdentity && !isTemporary && (
           <AgentContact
             agent={selectedAgent}
             className="animate-fadeIn mt-2 max-w-md justify-center text-center text-sm"

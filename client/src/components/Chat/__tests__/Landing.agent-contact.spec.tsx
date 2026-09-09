@@ -94,14 +94,14 @@ function renderLanding({ isTemporary = false }: { isTemporary?: boolean } = {}) 
   );
 }
 
-describe('Landing agent contact', () => {
+describe('Landing agent identity', () => {
   beforeEach(() => {
     mockConversation = null;
     mockAgentsMap = undefined;
     mockAssistantMap = undefined;
   });
 
-  it('shows contact for the selected agent from agentsMap', () => {
+  it('hides the selected agent identity and shows the greeting instead', () => {
     mockConversation = {
       endpoint: 'agents',
       agent_id: 'agent-1',
@@ -117,11 +117,11 @@ describe('Landing agent contact', () => {
 
     renderLanding();
 
-    expect(screen.getByText('Portal Remote Agent')).toBeInTheDocument();
-    expect(screen.getByText('Remote Agent Showcase')).toBeInTheDocument();
-    expect(screen.getByText('Contact:')).toBeInTheDocument();
-    expect(screen.getByText('Owner User')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Owner User' })).not.toBeInTheDocument();
+    expect(screen.getByText('Welcome')).toBeInTheDocument();
+    expect(screen.queryByText('Portal Remote Agent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Remote Agent Showcase')).not.toBeInTheDocument();
+    expect(screen.queryByText('Contact:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Owner User')).not.toBeInTheDocument();
   });
 
   it('does not show contact when the selected agent is missing from agentsMap', () => {
@@ -134,6 +134,7 @@ describe('Landing agent contact', () => {
 
     renderLanding();
 
+    expect(screen.getByText('Welcome')).toBeInTheDocument();
     expect(screen.queryByText('Contact:')).not.toBeInTheDocument();
     expect(screen.queryByText('No contact available')).not.toBeInTheDocument();
   });
