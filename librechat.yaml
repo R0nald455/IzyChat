@@ -166,6 +166,19 @@ mcpServers:
       - --rm
       - --init
       - --shm-size=1g
+      # Hardening for the ephemeral per-session container: no Linux
+      # capabilities, no privilege escalation, a read-only root filesystem
+      # (Chromium's scratch space and MCP output dir get their own tmpfs),
+      # and hard ceilings on memory/CPU/process count so one hung or
+      # malicious `browser_run_code_unsafe` call can't exhaust the host.
+      - --cap-drop=ALL
+      - --security-opt=no-new-privileges
+      - --read-only
+      - --tmpfs=/tmp:rw,size=512m
+      - --tmpfs=/home/node:rw,size=512m
+      - --pids-limit=256
+      - --memory=1g
+      - --cpus=1
       - mcr.microsoft.com/playwright/mcp:v0.0.80
       - --headless
       - --browser
@@ -174,16 +187,40 @@ mcpServers:
       - --isolated
     timeout: 300000
     initTimeout: 60000
+    env:
+      # `docker run` above talks to the daemon via docker-socket-proxy, not
+      # the raw socket — LibreChat spawns MCP stdio processes with a
+      # restricted environment, so DOCKER_HOST isn't inherited from the
+      # `api` container and must be set explicitly here too.
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
 
   chrome-devtools:
     type: stdio
-    command: npx
+    command: docker
     args:
-      - -y
-      - chrome-devtools-mcp@latest
-      - --browserUrl=http://localhost:9222
-    timeout: 120000
-    initTimeout: 30000
+      - run
+      - -i
+      - --rm
+      - --init
+      - --shm-size=1g
+      - --network=bridge
+      # Same hardening as `playwright` above: no Linux capabilities, no
+      # privilege escalation, read-only root filesystem (Chromium gets its
+      # own tmpfs scratch space), and hard ceilings on memory/CPU/process
+      # count for this ephemeral per-session container.
+      - --cap-drop=ALL
+      - --security-opt=no-new-privileges
+      - --read-only
+      - --tmpfs=/tmp:rw,size=512m
+      - --tmpfs=/root:rw,size=512m
+      - --pids-limit=256
+      - --memory=1g
+      - --cpus=1
+      - librechat-chrome-devtools-mcp:local
+    timeout: 300000
+    initTimeout: 60000
+    env:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
 
 
 
