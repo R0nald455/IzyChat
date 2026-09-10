@@ -23,31 +23,44 @@ services:
     depends_on:
       - mongodb
       - rag_api
-      - playwright-mcp
     volumes:
-    - C:\Users\AndresDanielHerrera\Documents\izychat-\izytesting-mcp:/app/izytesting-mcp:ro
+    - C:\Users\RonaldDavidCharariPa\Documents\izyMCP\izytesting-mcp:/app/izytesting-mcp:ro
     - type: bind
       source: ./librechat.yaml
       target: /app/librechat.yaml
+    # Docker-outside-of-Docker: lets the api container launch a fresh,
+    # official playwright-mcp container per MCP session via stdio (see
+    # librechat.yaml's `playwright` entry), instead of talking to a
+    # persistent streamable-http server. Grants the api container
+    # root-equivalent access to the host's Docker daemon.
+    - /var/run/docker.sock:/var/run/docker.sock
 
-  playwright-mcp:
-    image: mcr.microsoft.com/playwright/mcp:latest
-    container_name: playwright-mcp
-    init: true
+  # Persistent headless Chrome exposing the DevTools (CDP) protocol.
+  # `chrome-devtools-mcp` (see librechat.yaml) can't reliably launch its own
+  # Chrome from inside the `api` container — its sandbox needs permissions
+  # Docker doesn't grant, and the CLI has no --no-sandbox escape hatch
+  # (https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/261).
+  # So it connects to this container's CDP endpoint via --browserUrl instead.
+  #
+  # Shares `api`'s network namespace (rather than being reached by service
+  # name on the compose network) because Chrome's DevTools HTTP handler
+  # rejects any request whose Host header isn't "localhost" or a literal IP
+  # (DNS-rebinding protection) — a hostname like "chrome-headless" gets a
+  # 500 "Host header is specified and is not an IP address or localhost."
+  # Sharing the namespace makes it reachable as plain localhost:9222.
+  chrome-headless:
+    image: chromedp/headless-shell:latest
+    container_name: chrome-headless
     restart: unless-stopped
-    entrypoint: ["node"]
-    command:
-      - /app/cli.js
-      - --headless
-      - --browser
-      - chromium
-      - --no-sandbox
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8931"
-      - --allowed-hosts
-      - playwright-mcp:8931,playwright-mcp
+    shm_size: 1gb
+    network_mode: "service:api"
+    depends_on:
+      - api
+
+# NOTE: the previous `playwright-mcp` (streamable-http server) and
+# `mcp-guard` (session-recovery proxy) services were removed when the
+# `playwright` MCP server in librechat.yaml switched to stdio, spawning
+# a fresh container per session via the Docker socket above.
 
 # ---------------------------------------------------
 

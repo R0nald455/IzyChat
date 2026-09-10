@@ -1,0 +1,14 @@
+{
+  "name": "mcp-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Session-recovery reverse proxy for MCP Streamable HTTP servers (e.g. playwright-mcp).",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

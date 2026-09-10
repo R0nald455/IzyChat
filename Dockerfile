@@ -6,6 +6,11 @@ FROM node:24.16.0-alpine AS node
 RUN apk upgrade --no-cache
 RUN apk add --no-cache jemalloc
 RUN apk add --no-cache python3 py3-pip uv
+# docker CLI: lets this container launch sibling containers on the host's
+# Docker daemon (Docker-outside-of-Docker) via a mounted docker.sock, used
+# to run the `playwright` MCP server as a per-session stdio container
+# instead of a shared long-lived HTTP server. See librechat.yaml.
+RUN apk add --no-cache docker-cli
 
 # Set environment variable to use jemalloc
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2

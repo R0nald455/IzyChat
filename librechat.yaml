@@ -158,9 +158,30 @@ mcpServers:
         sensitive: true
  
   playwright:
-    type: streamable-http
-    url: http://playwright-mcp:8931/mcp
-    requiresOAuth: false
+    type: stdio
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - --init
+      - --shm-size=1g
+      - mcr.microsoft.com/playwright/mcp:v0.0.80
+      - --headless
+      - --browser
+      - chromium
+      - --no-sandbox
+      - --isolated
+    timeout: 300000
+    initTimeout: 60000
+
+  chrome-devtools:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - chrome-devtools-mcp@latest
+      - --browserUrl=http://localhost:9222
     timeout: 120000
     initTimeout: 30000
 
@@ -211,9 +232,9 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: false
-    share: false
-    public: false
+    create: true
+    share: true
+    public: true
 
   skills: false
 
@@ -461,8 +482,7 @@ actions:
 # Supports wildcards: '*.example.com' matches 'api.example.com', 'staging.example.com', etc.
 # Supports protocol/port restrictions: 'https://api.example.com:8443' restricts to specific protocol/port.
 mcpSettings:
-  allowedAddresses:
-    - 'playwright-mcp:8931'
+  allowedAddresses: []
 
 # Example MCP Servers Object Structure
 # mcpServers:
