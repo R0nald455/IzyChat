@@ -188,6 +188,8 @@ interface:
     #openNewTab: true
 
 
+  export: false
+
   # 🤖🤖🤖🤖🤖🤖🤖🤖
   # FOOTER CONFIGURATION
   privacyPolicy:
@@ -339,7 +341,7 @@ interface:
 
 # Example Registration Object Structure (optional)
 registration:
-  socialLogins: ['github', 'google', 'discord', 'openid', 'facebook', 'apple', 'saml']
+  socialLogins: ['openid']
   # allowedDomains:
   # - "gmail.com"
 
