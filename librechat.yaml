@@ -133,30 +133,38 @@ cache: true
 
 
 mcpServers:
+  # Integración administrada: un solo servidor MCP, compartido por todos los
+  # usuarios, sin nada que el usuario final pueda configurar.
+  #
+  # La identidad la aporta LibreChat, no el usuario. IzyTesting es el proveedor
+  # OIDC contra el que se inicia sesión, así que LibreChat ya tiene el access
+  # token de cada persona y lo reenvía en la cabecera. Antes esto era `stdio`
+  # con dos `customUserVars`, y cada usuario tenía que generar una API key en
+  # IzyTesting y pegarla acá; no hay nada que pegar.
+  #
+  # `{{LIBRECHAT_OPENID_ACCESS_TOKEN}}` se resuelve **antes de cada tool call**,
+  # así que el token que viaja nunca está vencido; si no se puede resolver,
+  # LibreChat responde 401 pidiendo re-autenticación en vez de llamar al MCP.
+  # Requiere OPENID_REUSE_TOKENS=true, que es lo que puebla `federatedTokens`.
+  #
+  # `${VAR}` se expande desde el entorno del servidor antes que cualquier dato
+  # de usuario, así que la llave de portería no pasa por sustitución de usuario.
   izytesting:
     title: IzyTesting
     description: Requerimientos, casos, bugs y automatización de IzyTesting
-    type: stdio
+    type: streamable-http
+    url: ${IZYTESTING_MCP_URL}
     startup: false
-    command: npx
-    args:
-      - -y
-      - "@izytesting/izytesting-mcp@0.1.1-beta.0"
     timeout: 120000
     initTimeout: 30000
-    env:
-      IZYTESTING_URL: "{{IZYTESTING_URL}}"
-      IZYTESTING_TOKEN: "{{IZYTESTING_TOKEN}}"
-    customUserVars:
-      IZYTESTING_URL:
-        title: URL de IzyTesting
-        description: Dirección del backend, por ejemplo https://izytesting.tu-dominio.com
-        sensitive: false
-      IZYTESTING_TOKEN:
-        title: Token personal
-        description: MCP key para autenticar con IzyTesting,
-        sensitive: true
- 
+    headers:
+      # Quién es el usuario.
+      Authorization: "Bearer {{LIBRECHAT_OPENID_ACCESS_TOKEN}}"
+      # Que este cliente es LibreChat. Secreto entre administradores.
+      X-Izy-Mcp-Key: "${IZYTESTING_HTTP_KEY}"
+    # Sin customUserVars a propósito: el usuario no tiene nada que configurar,
+    # y mientras se declaren es él quien controla su credencial.
+
   playwright:
     type: streamable-http
     url: http://playwright-mcp:8931/mcp
@@ -179,6 +187,8 @@ interface:
     #externalUrl: 'https://librechat.ai/privacy-policy'
     #openNewTab: true
 
+
+  export: false
 
   # 🤖🤖🤖🤖🤖🤖🤖🤖
   # FOOTER CONFIGURATION
@@ -211,7 +221,7 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: false
+    create: true
     share: false
     public: false
 
@@ -219,11 +229,15 @@ interface:
 
   memories: false
 
+  # El MCP de IzyTesting es una integración administrada: los usuarios lo usan,
+  # pero no pueden crear otro apuntando a donde quieran, ni compartirlo.
+  # Las entradas de librechat.yaml no son editables por el usuario en ningún
+  # caso; esto cierra la otra puerta, la de crear servidores propios.
   mcpServers:
     use: true
-    share: true 
-    create: true
-    public: true
+    create: false
+    share: false
+    public: false
 
   # Scheduled chats are experimental and disabled unless explicitly enabled.
   # A deployment with Redis-backed resumable streams can run this on every replica.
@@ -248,12 +262,16 @@ interface:
   #   # only makes sense as a per-user or per-role config override.
   #   # projectId: '000000000000000000000000'
   peoplePicker:
-    users: true
-    groups: true
-    roles: true
+    users: false
+    groups: false
+    roles: false
   marketplace:
     use: false
   fileCitations: false
+  sharedLinks:
+    create: false
+    share: false
+    public: false
   # Show the thumbs up/thumbs down feedback buttons on responses (default: true)
   feedback: false
   # Tools pinned to the prompt bar by default for all users.
@@ -323,7 +341,7 @@ interface:
 
 # Example Registration Object Structure (optional)
 registration:
-  socialLogins: ['github', 'google', 'discord', 'openid', 'facebook', 'apple', 'saml']
+  socialLogins: ['openid']
   # allowedDomains:
   # - "gmail.com"
 
@@ -463,6 +481,7 @@ actions:
 mcpSettings:
   allowedAddresses:
     - 'playwright-mcp:8931'
+    - 'izytesting-mcp:8787'
 
 # Example MCP Servers Object Structure
 # mcpServers:
@@ -1324,3 +1343,15 @@ endpoints:
 
 # Nuevo
 
+
+modelSpecs:
+  enforce: true
+  prioritize: true
+ 
+  list:
+    - name: izybot
+      label: IZYBOT
+      default: true
+      preset:
+        endpoint: agents
+        agent_id: agent_KvOvw6bSLyV6rSViL8tJ2
