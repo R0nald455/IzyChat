@@ -219,7 +219,7 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: false
+    create: true
     share: false
     public: false
 
