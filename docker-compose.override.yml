@@ -25,7 +25,6 @@ services:
       - rag_api
       - playwright-mcp
     volumes:
-    - C:\Users\AndresDanielHerrera\Documents\izychat-\izytesting-mcp:/app/izytesting-mcp:ro
     - type: bind
       source: ./librechat.yaml
       target: /app/librechat.yaml
