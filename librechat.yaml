@@ -219,9 +219,9 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: true
-    share: true
-    public: true
+    create: false
+    share: false
+    public: false
 
   skills: false
 
@@ -260,12 +260,16 @@ interface:
   #   # only makes sense as a per-user or per-role config override.
   #   # projectId: '000000000000000000000000'
   peoplePicker:
-    users: true
-    groups: true
-    roles: true
+    users: false
+    groups: false
+    roles: false
   marketplace:
     use: false
   fileCitations: false
+  sharedLinks:
+    create: false
+    share: false
+    public: false
   # Show the thumbs up/thumbs down feedback buttons on responses (default: true)
   feedback: false
   # Tools pinned to the prompt bar by default for all users.
