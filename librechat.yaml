@@ -1337,3 +1337,15 @@ endpoints:
 
 # Nuevo
 
+
+modelSpecs:
+  enforce: true
+  prioritize: true
+ 
+  list:
+    - name: izybot
+      label: IZYBOT
+      default: true
+      preset:
+        endpoint: agents
+        agent_id: agent_6gRHIv0HH7lsgnDzQsh1P
