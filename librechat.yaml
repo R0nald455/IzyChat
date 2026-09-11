@@ -219,9 +219,9 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: false
-    share: false
-    public: false
+    create: true
+    share: true
+    public: true
 
   skills: false
 
