@@ -155,6 +155,8 @@ mcpServers:
     type: streamable-http
     url: ${IZYTESTING_MCP_URL}
     startup: false
+    # Oculto del selector de MCP del chat: solo se usa a traves de agentes.
+    chatMenu: false
     timeout: 120000
     initTimeout: 30000
     headers:
@@ -171,6 +173,8 @@ mcpServers:
     type: streamable-http
     url: http://browser-mcp:8932/mcp
     requiresOAuth: false
+    # Oculto del selector de MCP del chat: solo se usa a traves de agentes.
+    chatMenu: false
     timeout: 120000
     initTimeout: 30000
 

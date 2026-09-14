@@ -94,7 +94,7 @@ export default function useSideNavLinks({
     permissionType: PermissionTypes.SCHEDULES,
     permission: Permissions.USE,
   });
-  const { availableMCPServers } = useMCPServerManager();
+  const { selectableServers } = useMCPServerManager();
 
   const { agentsConfig } = useGetAgentsConfig({ endpointsConfig });
   const { skillsEnabled } = useAgentCapabilities(agentsConfig?.capabilities);
@@ -219,8 +219,11 @@ export default function useSideNavLinks({
       });
     }
 
+    /** `selectableServers`, not `availableMCPServers`: a server hidden from the
+     *  chat menu (`chatMenu: false`) is operator-only, so it must not be what
+     *  puts the MCP panel in a plain user's nav. Holders of CREATE still get it. */
     if (
-      (hasAccessToUseMCPSettings && availableMCPServers && availableMCPServers.length > 0) ||
+      (hasAccessToUseMCPSettings && selectableServers && selectableServers.length > 0) ||
       hasAccessToCreateMCP
     ) {
       links.push({
@@ -259,7 +262,7 @@ export default function useSideNavLinks({
     interfaceConfig.parameters,
     endpointType,
     hasAccessToBookmarks,
-    availableMCPServers,
+    selectableServers,
     hasAccessToUseMCPSettings,
     hasAccessToCreateMCP,
     includeHidePanel,
