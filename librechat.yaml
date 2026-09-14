@@ -482,7 +482,7 @@ actions:
 # Supports protocol/port restrictions: 'https://api.example.com:8443' restricts to specific protocol/port.
 mcpSettings:
   allowedAddresses:
-    - 'playwright-mcp:8931'
+    - 'browser-mcp:8932'
     - 'izytesting-mcp:8787'
 
 # Example MCP Servers Object Structure
