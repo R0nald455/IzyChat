@@ -165,9 +165,11 @@ mcpServers:
     # Sin customUserVars a propósito: el usuario no tiene nada que configurar,
     # y mientras se declaren es él quien controla su credencial.
 
-  playwright:
+  browser:
+    title: Browser
+    description: Controla navegador Chromium (navegar, observar, click, rellenar, screenshot)
     type: streamable-http
-    url: http://playwright-mcp:8931/mcp
+    url: http://browser-mcp:8932/mcp
     requiresOAuth: false
     timeout: 120000
     initTimeout: 30000
@@ -222,7 +224,7 @@ interface:
   agents:
     use: true
     create: true
-    share: false
+    share: true
     public: false
 
   skills: false
@@ -236,7 +238,7 @@ interface:
   mcpServers:
     use: true
     create: false
-    share: false
+    share: true
     public: false
 
   # Scheduled chats are experimental and disabled unless explicitly enabled.

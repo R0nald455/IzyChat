@@ -68,24 +68,23 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  playwright-mcp:
-    image: mcr.microsoft.com/playwright/mcp:latest
-    container_name: playwright-mcp
+  browser-mcp:
+    build:
+      context: ../browser-mcp
+    image: browser-mcp:0.1.0
+    container_name: browser-mcp
     init: true
     restart: unless-stopped
-    entrypoint: ["node"]
-    command:
-      - /app/cli.js
-      - --headless
-      - --browser
-      - chromium
-      - --no-sandbox
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8931"
-      - --allowed-hosts
-      - playwright-mcp:8931,playwright-mcp
+    environment:
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8932
+      - BROWSER_HEADLESS=true
+      - ACTION_TIMEOUT=${ACTION_TIMEOUT:-30000}
+      - NAVIGATION_TIMEOUT=${NAVIGATION_TIMEOUT:-60000}
+      - OBSERVATION_TIMEOUT=${OBSERVATION_TIMEOUT:-10000}
+      - SESSION_IDLE_TIMEOUT=${SESSION_IDLE_TIMEOUT:-1800}
+      - MAX_SESSIONS=${MAX_SESSIONS:-10}
+      - ALLOWED_DOMAINS=${ALLOWED_DOMAINS:-}
 
 # ---------------------------------------------------
 
