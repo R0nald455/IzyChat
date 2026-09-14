@@ -23,7 +23,7 @@ services:
     depends_on:
       - mongodb
       - rag_api
-      - playwright-mcp
+      - browser-mcp
       - izytesting-mcp
     volumes:
     - type: bind
