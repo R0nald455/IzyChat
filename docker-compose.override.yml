@@ -70,7 +70,7 @@ services:
 
   browser-mcp:
     build:
-      context: ../browser-mcp
+      context: ../browser_mcp
     image: browser-mcp:0.1.0
     container_name: browser-mcp
     init: true
