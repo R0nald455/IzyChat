@@ -227,7 +227,7 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: true
+    create: false
     share: true
     public: false
 
