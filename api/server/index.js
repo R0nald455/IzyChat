@@ -54,6 +54,7 @@ const {
   createAgentEventTerminalHandler,
   createScheduleWriteGate,
   waitForKeyvRedisClient,
+  configureIzyUsageReporter,
 } = require('@librechat/api');
 const { connectDb, indexSync } = require('~/db');
 const {
@@ -61,6 +62,7 @@ const {
   sweepOrphanedPreviews,
   getRoleByName,
   seedDatabase,
+  getUserById,
 } = require('~/models');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
 const { capabilityContextMiddleware } = require('./middleware/roles/capabilities');
@@ -180,6 +182,10 @@ const startServer = async () => {
   indexSync().catch((err) => {
     logger.error('[indexSync] Background sync failed:', err);
   });
+
+  /* Espeja el consumo del agente hacia IzyTesting (`agent_usage`). Inerte sin
+   * IZYTESTING_USAGE_URL / IZYTESTING_USAGE_KEY. */
+  configureIzyUsageReporter({ getUserById });
 
   app.disable('x-powered-by');
   app.set('trust proxy', trusted_proxy);
