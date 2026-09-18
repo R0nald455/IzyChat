@@ -74,6 +74,8 @@ export * from './skills';
 export * from './favorites';
 /* User */
 export * from './user';
+/* IzyTesting */
+export * from './izy/usage';
 /* Agent Plugins */
 export * from './plugins';
 /* Endpoints */

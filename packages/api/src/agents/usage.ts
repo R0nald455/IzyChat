@@ -28,6 +28,7 @@ import {
   prepareTokenSpend,
 } from './transactions';
 import { collectDetachedSubagentUsage } from './subagentTaskContext';
+import { reportAgentUsage } from '~/izy/usage';
 
 type SpendTokensFn = (txData: TxMetadata, tokenUsage: TokenUsage) => Promise<unknown>;
 type SpendStructuredTokensFn = (
@@ -647,6 +648,16 @@ export async function recordCollectedUsage(
 
   let total_output_tokens = 0;
 
+  /** Totales facturados de TODA la corrida — incluidos los grupos que se
+   *  excluyen de `total_output_tokens` (subagentes, llamadas secuenciales):
+   *  el reporte de consumo debe cuadrar con lo que se cobró al saldo, no con
+   *  lo que vio el mensaje. `billedCredits` solo es fiable con la ruta bulk,
+   *  que es la única que expone el `tokenValue` ya tarifado. */
+  let billedInputTokens = 0;
+  let billedOutputTokens = 0;
+  let billedCredits = 0;
+  let creditsAreComplete = true;
+
   const { pricing, bulkWriteOps } = deps;
   const useBulk = pricing && bulkWriteOps;
 
@@ -661,11 +672,14 @@ export async function recordCollectedUsage(
         continue;
       }
 
-      const { inputOnly, cacheCreation, cacheRead, completion } = splitUsage(usage);
+      const { inputOnly, cacheCreation, cacheRead, completion, totalInput } = splitUsage(usage);
 
       if (options?.excludeFromOutputTotal !== true) {
         total_output_tokens += completion;
       }
+
+      billedInputTokens += totalInput;
+      billedOutputTokens += completion;
 
       const txMetadata: TxMetadata = {
         user,
@@ -706,9 +720,12 @@ export async function recordCollectedUsage(
                 },
                 pricing,
               );
+        billedCredits += entries.reduce((sum, entry) => sum + Math.abs(entry.tokenValue), 0);
         docs.push(...entries);
         continue;
       }
+
+      creditsAreComplete = false;
 
       if (cacheCreation > 0 || cacheRead > 0) {
         deps
@@ -762,6 +779,17 @@ export async function recordCollectedUsage(
       logger.error('[packages/api #recordCollectedUsage] Error in bulk write', err);
     }
   }
+
+  /** Espejo del consumo hacia IzyTesting, que lo acumula como `agent_usage`
+   *  en su tabla de logs. Es best-effort y no puede afectar a la respuesta. */
+  reportAgentUsage({
+    user,
+    inputTokens: billedInputTokens,
+    outputTokens: billedOutputTokens,
+    credits: creditsAreComplete ? billedCredits : undefined,
+    model,
+    conversationId,
+  });
 
   return {
     input_tokens,

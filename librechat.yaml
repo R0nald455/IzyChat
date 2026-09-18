@@ -351,9 +351,31 @@ registration:
   # allowedDomains:
   # - "gmail.com"
 
-# Example Balance settings
+# Cupo mensual por usuario.
+#
+# La unidad es el tokenCredit: 1000 credits = 1 mill = $0.001 USD, o sea
+# 1 credit = $0.000001. El tope de negocio es de USD 4 al mes por persona,
+# así que el cupo es 4 * 1e6 = 4.000.000 de credits.
+#
+# Cuántos tokens son depende del modelo. Con `claude-haiku-4-5`
+# ($1 por millón de entrada, $5 por millón de salida) el cupo da:
+#   - ~4.000.000 de tokens si todo fuera entrada,
+#   -   ~800.000 de tokens si todo fuera salida,
+#   - ~2.200.000 de tokens con una mezcla realista de 80% entrada / 20% salida
+#     (0,8 * 1 + 0,2 * 5 = 1,8 credits por token).
+# Como el cupo se lleva en credits y no en tokens, el tope en dólares se
+# respeta aunque cambie el modelo o su tarifa.
+#
+# La recarga NO se acumula: `checkBalance` solo aplica `refillAmount` cuando el
+# saldo se agotó y además pasó el intervalo desde `lastRefill`. Quien no gasta
+# no arrastra saldo al mes siguiente, y nadie puede gastar más de USD 4 al mes.
 balance:
-   enabled: false
+  enabled: true
+  startBalance: 4000000
+  autoRefillEnabled: true
+  refillIntervalValue: 1
+  refillIntervalUnit: months
+  refillAmount: 4000000
 
 
 # Example Transactions settings
