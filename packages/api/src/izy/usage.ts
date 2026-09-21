@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { logger } from '@librechat/data-schemas';
 
 /**
@@ -42,8 +43,23 @@ interface IzyUsageConfig {
 
 const EMAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 5000;
+const INGEST_KEY_HEADER = 'X-Izy-Usage-Key';
 
 const emailCache = new Map<string, { email: string; expiresAt: number }>();
+
+/**
+ * Huella comparable de un secreto, para diagnosticar sin filtrarlo. IzyTesting
+ * calcula la MISMA huella del secreto que recibe, así que dos huellas distintas
+ * en los logs de ambos lados dicen "no es el mismo secreto" sin que ninguno de
+ * los dos lo escriba.
+ */
+function keyFingerprint(value: string): string {
+  if (!value) {
+    return 'vacio';
+  }
+  const digest = createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 8);
+  return `len=${value.length} sha256=${digest}`;
+}
 
 let deps: IzyUsageReporterDeps | null = null;
 let warnedMissingConfig = false;
@@ -65,7 +81,10 @@ export function configureIzyUsageReporter(reporterDeps: IzyUsageReporterDeps): v
     );
     return;
   }
-  logger.info(`[izy/usage] Espejo de consumo activo hacia ${config.url}`);
+  logger.info(
+    `[izy/usage] Espejo de consumo activo hacia ${config.url} | cabecera ${INGEST_KEY_HEADER} ` +
+      `clave(${keyFingerprint(config.key)}) | timeout ${config.timeoutMs}ms`,
+  );
 }
 
 /** Solo para pruebas: olvida las dependencias y la caché de emails. */
@@ -107,11 +126,15 @@ async function postUsage(config: IzyUsageConfig, body: Record<string, unknown>):
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
+    logger.debug(
+      `[izy/usage] POST ${config.url} | ${INGEST_KEY_HEADER} clave(${keyFingerprint(config.key)})`,
+      body,
+    );
     const response = await fetch(config.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Izy-Usage-Key': config.key,
+        [INGEST_KEY_HEADER]: config.key,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -121,11 +144,20 @@ async function postUsage(config: IzyUsageConfig, body: Record<string, unknown>):
        *  invalido); sin el, un 403 y un 404 se ven igual en el log. */
       const detail = await response.text().catch(() => '');
       logger.warn(
-        `[izy/usage] IzyTesting rechazó el reporte de consumo (${response.status} ${response.statusText}) ${detail}`,
+        `[izy/usage] IzyTesting rechazó el reporte (${response.status} ${response.statusText}) ` +
+          `url=${config.url} clave(${keyFingerprint(config.key)}) respuesta=${detail}`,
       );
+      if (response.status === 403) {
+        logger.warn(
+          '[izy/usage] Un 403 significa que la clave que LLEGÓ a IzyTesting no coincide con su ' +
+            'AGENT_USAGE_INGEST_KEY, o que no llegó la cabecera. Compará la huella de arriba con ' +
+            'la que loguea IzyTesting: si coinciden, el backend tiene otra clave (o no la tiene y ' +
+            'falla cerrado); si no coinciden o dice "vacio", un proxy intermedio filtró la cabecera.',
+        );
+      }
       return;
     }
-    logger.debug('[izy/usage] Consumo reportado', body);
+    logger.debug(`[izy/usage] Consumo reportado OK (${response.status})`, body);
   } finally {
     clearTimeout(timeout);
   }
@@ -155,6 +187,7 @@ export function reportAgentUsage(report: AgentUsageReport): void {
   const inputTokens = Math.max(Math.round(report.inputTokens || 0), 0);
   const outputTokens = Math.max(Math.round(report.outputTokens || 0), 0);
   if (inputTokens === 0 && outputTokens === 0) {
+    logger.debug(`[izy/usage] Corrida sin tokens (user ${report.user}); no se reporta`);
     return;
   }
 
@@ -174,7 +207,15 @@ export function reportAgentUsage(report: AgentUsageReport): void {
         ...(report.conversationId ? { conversation_id: report.conversationId } : {}),
       });
     } catch (error) {
-      logger.error('[izy/usage] No se pudo reportar el consumo del agente', error);
+      /** Un fallo de red (DNS, timeout, conexion rechazada) nunca llega a
+       *  IzyTesting, asi que este log es el UNICO rastro: sin la url, un
+       *  contenedor que no alcanza al backend se confunde con un 403. */
+      logger.error(
+        `[izy/usage] No se pudo reportar el consumo a ${config.url} ` +
+          '(fallo de red o timeout; el saldo SI se cobro). Verifica que el contenedor de ' +
+          'LibreChat alcance esa url.',
+        error,
+      );
     }
   })();
 }
