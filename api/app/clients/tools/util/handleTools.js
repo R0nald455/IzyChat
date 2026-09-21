@@ -23,6 +23,7 @@ const {
   buildWebSearchDynamicContext,
   codeExecutionAuthHeaders,
   resolveCodeExecutionContext,
+  OpenIDReauthRequiredError,
 } = require('@librechat/api');
 const {
   AuthType,
@@ -655,6 +656,9 @@ const loadTools = async ({
           /** Handle async loading for single 'all' tool config */
           mcpToolPromises.push(
             createMCPTools(mcpParams).catch((error) => {
+              if (error instanceof OpenIDReauthRequiredError) {
+                throw error;
+              }
               logger.error(`Error loading ${serverName} tools:`, error);
               return null;
             }),
@@ -665,6 +669,9 @@ const loadTools = async ({
           try {
             availableTools = await getMCPServerTools(safeUser.id, serverName, config.config);
           } catch (error) {
+            if (error instanceof OpenIDReauthRequiredError) {
+              throw error;
+            }
             logger.error(`Error fetching available tools for MCP server ${serverName}:`, error);
           }
         }
@@ -693,6 +700,9 @@ const loadTools = async ({
           );
         }
       } catch (error) {
+        if (error instanceof OpenIDReauthRequiredError) {
+          throw error;
+        }
         logger.error(`Error loading MCP tool for server ${serverName}:`, error);
       }
     }
