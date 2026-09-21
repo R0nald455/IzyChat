@@ -119,6 +119,12 @@ export type DocumentBlock =
 
 export interface DocumentResult {
   documents: DocumentBlock[];
+  /**
+   * Decoded plain text for documents a provider's native document/file block can't carry
+   * (e.g. a non-PDF textual file on an OpenAI-like provider, whose `file_data` path is
+   * PDF-only). Meant to be merged into `message.fileContext`, not `message.documents`.
+   */
+  textContext?: string;
   files: Array<{
     file_id?: string;
     temp_file_id?: string;

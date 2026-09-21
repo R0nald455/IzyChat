@@ -908,19 +908,13 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       expect(mockedGetFileStream).not.toHaveBeenCalled();
     });
 
-    it('should retain XLSX support for non-Claude OpenAI models', async () => {
+    it('should skip XLSX for non-Claude OpenAI models: OpenAI file input is PDF-only', async () => {
       const req = createMockRequest(30) as ServerRequest;
       const file = createMockDocFile(
         1,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'report.xlsx',
       );
-      const mockContent = Buffer.from('xlsx-content').toString('base64');
-      mockedGetFileStream.mockResolvedValue({
-        file,
-        content: mockContent,
-        metadata: file,
-      });
 
       const result = await encodeAndFormatDocuments(
         req,
@@ -929,17 +923,9 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
         mockStrategyFunctions,
       );
 
-      expect(result.documents).toMatchObject([
-        {
-          type: 'file',
-          file: {
-            filename: 'report.xlsx',
-            file_data: `data:${file.type};base64,${mockContent}`,
-          },
-        },
-      ]);
-      expect(result.files).toEqual([file]);
-      expect(mockedGetFileStream).toHaveBeenCalledTimes(1);
+      expect(result.documents).toHaveLength(0);
+      expect(result.files).toHaveLength(0);
+      expect(mockedGetFileStream).not.toHaveBeenCalled();
     });
 
     it('should still encode supported Anthropic documents when mixed with unsupported ones', async () => {
@@ -970,7 +956,7 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       expect(mockedGetFileStream).toHaveBeenCalledTimes(1);
     });
 
-    it('should format text/csv for OpenAI responses API', async () => {
+    it('should inline text/csv as textContext for OpenAI responses API: input_file is PDF-only', async () => {
       const req = createMockRequest(15) as ServerRequest;
       const file = createMockDocFile(1, 'text/csv', 'data.csv');
 
@@ -988,12 +974,9 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
         mockStrategyFunctions,
       );
 
-      expect(result.documents).toHaveLength(1);
-      expect(result.documents[0]).toMatchObject({
-        type: 'input_file',
-        filename: 'data.csv',
-        file_data: `data:text/csv;base64,${mockContent}`,
-      });
+      expect(result.documents).toHaveLength(0);
+      expect(result.textContext).toContain('a,b\n1,2');
+      expect(result.textContext).toContain('data.csv');
       expect(result.files).toHaveLength(1);
     });
 
@@ -1025,7 +1008,7 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       expect(result.files).toHaveLength(1);
     });
 
-    it('should format text/plain for standard OpenAI-like provider as file block', async () => {
+    it('should inline text/plain as textContext for standard OpenAI-like provider: file input is PDF-only', async () => {
       const req = createMockRequest(15) as ServerRequest;
       const file = createMockDocFile(1, 'text/plain', 'readme.txt');
 
@@ -1043,15 +1026,53 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
         mockStrategyFunctions,
       );
 
-      expect(result.documents).toHaveLength(1);
-      expect(result.documents[0]).toMatchObject({
-        type: 'file',
-        file: {
-          filename: 'readme.txt',
-          file_data: `data:text/plain;base64,${mockContent}`,
-        },
-      });
+      expect(result.documents).toHaveLength(0);
+      expect(result.textContext).toBe('File: "readme.txt"\nreadme content');
       expect(result.files).toHaveLength(1);
+    });
+
+    it('should inline application/json as textContext for OpenAI: avoids the 400 from a JSON attachment', async () => {
+      const req = createMockRequest(15) as ServerRequest;
+      const file = createMockDocFile(1, 'application/json', 'coleccion.json');
+
+      const jsonText = '{"servicios":[{"url":"https://api.test/login"}]}';
+      const mockContent = Buffer.from(jsonText).toString('base64');
+      mockedGetFileStream.mockResolvedValue({
+        file,
+        content: mockContent,
+        metadata: file,
+      });
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: Providers.OPENAI },
+        mockStrategyFunctions,
+      );
+
+      /** No `input_file`/`file` block is built -- OpenAI would reject a non-PDF `file_data`
+       *  with a 400. The decoded content goes to `textContext` instead, to be merged into
+       *  `message.fileContext` by the caller, so the model still sees it as plain text. */
+      expect(result.documents).toHaveLength(0);
+      expect(result.textContext).toBe(`File: "coleccion.json"\n${jsonText}`);
+      expect(result.files).toHaveLength(1);
+    });
+
+    it('should still skip a non-textual type for OpenAI (e.g. a zip) rather than inlining garbage text', async () => {
+      const req = createMockRequest(15) as ServerRequest;
+      const file = createMockDocFile(1, 'application/zip', 'archive.zip');
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: Providers.OPENAI },
+        mockStrategyFunctions,
+      );
+
+      expect(result.documents).toHaveLength(0);
+      expect(result.textContext).toBeUndefined();
+      expect(result.files).toHaveLength(0);
+      expect(mockedGetFileStream).not.toHaveBeenCalled();
     });
 
     it('should skip non-Bedrock-document types for Bedrock provider', async () => {
@@ -1145,7 +1166,7 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       const result = await encodeAndFormatDocuments(
         req,
         files,
-        { provider: Providers.OPENAI, useResponsesApi: true },
+        { provider: Providers.ANTHROPIC },
         mockStrategyFunctions,
       );
 

@@ -1654,6 +1654,7 @@ class BaseClient {
       documentResult.documents && documentResult.documents.length
         ? documentResult.documents
         : undefined;
+    this.mergeFileContext(message, documentResult.textContext);
     return documentResult.files;
   }
 
@@ -1688,6 +1689,22 @@ class BaseClient {
   }
 
   /**
+   * Appends text onto `message.fileContext` instead of replacing it. `addFileContextToMessage`
+   * and `addDocuments` both populate this field and run concurrently (`Promise.all` in
+   * `addPreviousAttachments`/agents `client.js`); each merge is a single synchronous
+   * read-then-write with no `await` in between, so the two can't interleave mid-statement --
+   * whichever finishes second safely appends onto whatever the first already wrote.
+   * @param {TMessage} message
+   * @param {string} text
+   */
+  mergeFileContext(message, text) {
+    if (!text) {
+      return;
+    }
+    message.fileContext = message.fileContext ? `${message.fileContext}\n\n${text}` : text;
+  }
+
+  /**
    * Extracts text context from attachments and sets it on the message.
    * This handles text that was already extracted from files (OCR, transcriptions, document text, etc.)
    * @param {TMessage} message - The message to add context to
@@ -1701,9 +1718,7 @@ class BaseClient {
       tokenCountFn: (text) => countTokens(text),
     });
 
-    if (fileContext) {
-      message.fileContext = fileContext;
-    }
+    this.mergeFileContext(message, fileContext);
   }
 
   async processAttachments(message, attachments) {
