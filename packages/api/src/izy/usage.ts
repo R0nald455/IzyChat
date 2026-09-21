@@ -46,18 +46,32 @@ const DEFAULT_TIMEOUT_MS = 5000;
 const emailCache = new Map<string, { email: string; expiresAt: number }>();
 
 let deps: IzyUsageReporterDeps | null = null;
+let warnedMissingConfig = false;
 
 /**
  * Habilita el reporte. Se llama una vez al arrancar el servidor; sin esto (o
  * sin las variables de entorno) `reportAgentUsage` es un no-op.
+ *
+ * Deja constancia en el log de si el espejo quedó activo: un espejo apagado por
+ * configuración es indistinguible de uno roto si no se anuncia al arrancar.
  */
 export function configureIzyUsageReporter(reporterDeps: IzyUsageReporterDeps): void {
   deps = reporterDeps;
+  const config = getConfig();
+  if (!config) {
+    logger.warn(
+      '[izy/usage] Espejo de consumo INACTIVO: faltan IZYTESTING_USAGE_URL y/o IZYTESTING_USAGE_KEY. ' +
+        'El saldo se sigue cobrando, pero no se registra `agent_usage` en IzyTesting.',
+    );
+    return;
+  }
+  logger.info(`[izy/usage] Espejo de consumo activo hacia ${config.url}`);
 }
 
 /** Solo para pruebas: olvida las dependencias y la caché de emails. */
 export function resetIzyUsageReporter(): void {
   deps = null;
+  warnedMissingConfig = false;
   emailCache.clear();
 }
 
@@ -103,10 +117,15 @@ async function postUsage(config: IzyUsageConfig, body: Record<string, unknown>):
       signal: controller.signal,
     });
     if (!response.ok) {
+      /** El cuerpo trae el motivo (clave mal, usuario desconocido, payload
+       *  invalido); sin el, un 403 y un 404 se ven igual en el log. */
+      const detail = await response.text().catch(() => '');
       logger.warn(
-        `[izy/usage] IzyTesting rechazó el reporte de consumo (${response.status} ${response.statusText})`,
+        `[izy/usage] IzyTesting rechazó el reporte de consumo (${response.status} ${response.statusText}) ${detail}`,
       );
+      return;
     }
+    logger.debug('[izy/usage] Consumo reportado', body);
   } finally {
     clearTimeout(timeout);
   }
@@ -118,7 +137,18 @@ async function postUsage(config: IzyUsageConfig, body: Record<string, unknown>):
  */
 export function reportAgentUsage(report: AgentUsageReport): void {
   const config = getConfig();
-  if (!config || !deps || !report.user) {
+  if (!config || !deps) {
+    if (!warnedMissingConfig) {
+      warnedMissingConfig = true;
+      logger.warn(
+        '[izy/usage] Hubo consumo de agente pero el espejo está inactivo ' +
+          `(config: ${config != null}, deps: ${deps != null}). No se registrará \`agent_usage\`.`,
+      );
+    }
+    return;
+  }
+  if (!report.user) {
+    logger.warn('[izy/usage] Consumo sin usuario; no se reporta');
     return;
   }
 
