@@ -64,6 +64,16 @@ describe('inferMimeType', () => {
     expect(inferMimeType('file.xyz', '')).toBe('');
   });
 
+  it('should infer application/xml for .wsdl and .jmx when the browser sends no type', () => {
+    expect(inferMimeType('servicio.wsdl', '')).toBe('application/xml');
+    expect(inferMimeType('plan.jmx', '')).toBe('application/xml');
+  });
+
+  it('should accept .wsdl and .jmx uploads after inferring their type', () => {
+    expect(baseFileConfig.checkType(inferMimeType('servicio.wsdl', ''))).toBe(true);
+    expect(baseFileConfig.checkType(inferMimeType('plan.jmx', ''))).toBe(true);
+  });
+
   it('should produce a type accepted by checkType after normalizing text/x-python-script', () => {
     const normalized = inferMimeType('test.py', 'text/x-python-script');
     expect(baseFileConfig.checkType(normalized)).toBe(true);

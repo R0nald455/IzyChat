@@ -296,6 +296,8 @@ export const codeTypeMapping: { [key: string]: string } = {
   parquet: 'application/x-parquet', // .parquet - Apache Parquet columnar storage
   json: 'application/json', // .json - JSON file
   xml: 'application/xml', // .xml - XML file
+  wsdl: 'application/xml', // .wsdl - WSDL (SOAP service description, XML-based)
+  jmx: 'application/xml', // .jmx - JMeter test plan (XML-based)
   html: 'text/html', // .html - HTML file
   htm: 'text/html', // .htm - HTML file
   css: 'text/css', // .css - CSS file
