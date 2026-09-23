@@ -18,6 +18,7 @@ const {
   buildWebSearchContext,
   buildImageToolContext,
   buildToolClassification,
+  supportsProgrammaticCodeExecution,
   getMissingCustomUserVars,
   buildWebSearchDynamicContext,
   getCodeApiAuthHeaders,
@@ -45,9 +46,17 @@ const {
   AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE,
   isFatalAgentInitializationError,
   codeExecutionAuthHeaders,
+  createAttachedWorkspaceBashTool,
+  createGitIdentityProgrammaticBashTool,
   resolveCodeExecutionContext,
   resolveCallerCapabilityProjectionSnapshot,
+  CREATE_FILE_TOOL_NAME,
+  EDIT_FILE_TOOL_NAME,
+  LIST_WORKSPACE_FILES_TOOL_NAME,
+  SEARCH_WORKSPACE_TOOL_NAME,
   getTransactionsConfig,
+  checkToolRolePermission,
+  resolveToolRolePermissions,
 } = require('@librechat/api');
 const {
   Time,
@@ -63,6 +72,7 @@ const {
   isActionTool,
   actionDelimiter,
   ImageVisionTool,
+  PermissionTypes,
   hasActivePiiFields,
   hasActivePiiPatterns,
   openapiToFunction,
@@ -81,6 +91,7 @@ const {
   domainParser,
 } = require('./ActionService');
 const {
+  getAppConfig,
   getEndpointsConfig,
   getMCPServerTools,
   getCachedTools,
@@ -101,7 +112,7 @@ const { createOpenIDSessionTokenProvider } = require('~/server/services/OpenIDSe
 const { getMCPRequestContext } = require('~/server/services/MCPRequestContext');
 const { recordUsage } = require('~/server/services/Threads');
 const { loadTools } = require('~/app/clients/tools/util');
-const { findPluginAuthsByKeys } = require('~/models');
+const { findPluginAuthsByKeys, getRoleByName } = require('~/models');
 const { getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
 
@@ -130,6 +141,32 @@ const getActiveToolResources = (toolResources, tools) => {
 
   return Object.keys(activeResources).length > 0 ? activeResources : null;
 };
+
+/** Deployment switch guarding each role-gated tool. Spelled out rather than
+ *  inferred from the tool name so the two enums can drift apart safely. */
+const toolCapabilityGates = {
+  [Tools.file_search]: AgentCapabilities.file_search,
+  [Tools.execute_code]: AgentCapabilities.execute_code,
+};
+
+/**
+ * Resolves the role grants for an agent's gated tools. A tool already switched
+ * off by its `AgentCapabilities` entry is skipped, so a disabled deployment
+ * costs no role read and logs no denial.
+ *
+ * @param {ServerRequest} req
+ * @param {string[]} [tools] - The agent's configured tool names.
+ * @param {Set<string>} enabledCapabilities
+ * @returns {Promise<(tool: string) => boolean>} Predicate; `true` for any tool
+ * that carries no role permission.
+ */
+const resolveAgentToolPermissions = (req, tools, enabledCapabilities) =>
+  resolveToolRolePermissions({
+    req,
+    tools,
+    getRoleByName,
+    isEligible: (tool) => enabledCapabilities.has(toolCapabilityGates[tool]),
+  });
 
 const assertToolResourcesAllowed = ({ req, toolResources, tools }) => {
   const filters = req.config?.filters;
@@ -196,7 +233,7 @@ const prepareActionSnapshotForTools = async ({ agentId, toolNames, filters, decr
   if (!toolNames.some((toolName) => isActionTool(toolName))) {
     return null;
   }
-  const storedActions = (await loadActionSets({ agent_id: agentId })) ?? [];
+  const storedActions = (await loadActionSets({ agentId })) ?? [];
   if (storedActions.length === 0) {
     return { storedActions, actionSets: [] };
   }
@@ -515,7 +552,7 @@ async function processRequiredActions(client, requiredActions) {
         /** @type {Action[]} */
         const storedActions =
           (await loadActionSets({
-            assistant_id: client.req.body.assistant_id,
+            assistantId: client.req.body.assistant_id,
           })) ?? [];
         const actionSets = await prepareStoredActionsForUse({
           actions: storedActions,
@@ -775,9 +812,14 @@ async function loadToolDefinitionsWrapper({
   const actionsEnabled = checkCapability(AgentCapabilities.actions);
   const deferredToolsEnabled = checkCapability(AgentCapabilities.deferred_tools);
   const programmaticToolsEnabled = enabledCapabilities.has(AgentCapabilities.programmatic_tools);
+  const canUseTool = await resolveAgentToolPermissions(req, agent.tools, enabledCapabilities);
+  /** Gates the sandbox everywhere it is reachable, not just the `execute_code`
+   *  entry in `filteredTools`: this flag also drives tool classification and the
+   *  programmatic bash tool, which would otherwise run code for a denied role. */
   const codeExecutionEnabled =
     agent.tools?.includes(Tools.execute_code) === true &&
-    enabledCapabilities.has(AgentCapabilities.execute_code);
+    enabledCapabilities.has(AgentCapabilities.execute_code) &&
+    canUseTool(Tools.execute_code);
   const resolvedCodeExecutionContext =
     codeExecutionContext ??
     resolveCodeExecutionContext({
@@ -798,10 +840,10 @@ async function loadToolDefinitionsWrapper({
 
   const filteredTools = agent.tools?.filter((tool) => {
     if (tool === Tools.file_search) {
-      return checkCapability(AgentCapabilities.file_search);
+      return checkCapability(AgentCapabilities.file_search) && canUseTool(tool);
     }
     if (tool === Tools.execute_code) {
-      return checkCapability(AgentCapabilities.execute_code);
+      return checkCapability(AgentCapabilities.execute_code) && canUseTool(tool);
     }
     if (tool === Tools.web_search) {
       return checkCapability(AgentCapabilities.web_search);
@@ -1248,6 +1290,9 @@ async function loadToolDefinitionsWrapper({
       deferredToolsEnabled,
       programmaticToolsEnabled,
       codeExecutionEnabled,
+      codeExecutionContext: resolvedCodeExecutionContext,
+      codeEnvironments: appConfig?.endpoints?.agents?.statefulCodeSessions?.environments,
+      getAppConfig,
       provider: agent.provider,
       mcpServerNames,
       rawServerNames: mcpRawServerNames,
@@ -1338,6 +1383,9 @@ async function loadToolDefinitionsWrapper({
           deferredToolsEnabled,
           programmaticToolsEnabled,
           codeExecutionEnabled,
+          codeExecutionContext: resolvedCodeExecutionContext,
+          codeEnvironments: appConfig?.endpoints?.agents?.statefulCodeSessions?.environments,
+          getAppConfig,
           provider: agent.provider,
           mcpServerNames,
           rawServerNames: mcpRawServerNames,
@@ -1569,13 +1617,14 @@ async function loadAgentTools({
   const hasMCPTools = agent.tools?.some((tool) => tool?.includes(Constants.mcp_delimiter));
   const mcpPermissionContext = createMCPPermissionContext(req);
   const canUseMCP = hasMCPTools ? await mcpPermissionContext.canUseServers(req.user) : true;
+  const canUseTool = await resolveAgentToolPermissions(req, agent.tools, enabledCapabilities);
 
   let includesWebSearch = false;
   const _agentTools = agent.tools?.filter((tool) => {
     if (tool === Tools.file_search) {
-      return checkCapability(AgentCapabilities.file_search);
+      return checkCapability(AgentCapabilities.file_search) && canUseTool(tool);
     } else if (tool === Tools.execute_code) {
-      return checkCapability(AgentCapabilities.execute_code);
+      return checkCapability(AgentCapabilities.execute_code) && canUseTool(tool);
     } else if (tool === Tools.web_search) {
       includesWebSearch = checkCapability(AgentCapabilities.web_search);
       return includesWebSearch;
@@ -1637,7 +1686,8 @@ async function loadAgentTools({
 
   const codeExecutionEnabled =
     agent.tools?.includes(Tools.execute_code) === true &&
-    enabledCapabilities.has(AgentCapabilities.execute_code);
+    enabledCapabilities.has(AgentCapabilities.execute_code) &&
+    canUseTool(Tools.execute_code);
   const statefulCodeSessions =
     codeExecutionEnabled &&
     enabledCapabilities.has(AgentCapabilities.stateful_code_sessions) &&
@@ -1696,6 +1746,8 @@ async function loadAgentTools({
       deferredToolsEnabled,
       programmaticToolsEnabled,
       codeExecutionEnabled,
+      codeEnvironments: appConfig?.endpoints?.agents?.statefulCodeSessions?.environments,
+      getAppConfig,
       authHeaders: () =>
         codeExecutionAuthHeaders(
           (bridgeWorkerId) => getCodeApiAuthHeaders(req, bridgeWorkerId),
@@ -2000,10 +2052,16 @@ async function loadToolsForExecution({
   const isPTCRequested = ptcToolNames.length > 0;
   const isBashToolRequested = toolNames.includes(AgentConstants.BASH_TOOL);
   const isLegacyExecuteCodeRequested = toolNames.includes(Tools.execute_code);
-  const isCodeExecutionToolRequested = isBashToolRequested || isLegacyExecuteCodeRequested;
+  const isWorkspaceSearchRequested = toolNames.includes(SEARCH_WORKSPACE_TOOL_NAME);
+  const isWorkspaceListRequested = toolNames.includes(LIST_WORKSPACE_FILES_TOOL_NAME);
+  const isCodeExecutionToolRequested =
+    isBashToolRequested ||
+    isLegacyExecuteCodeRequested ||
+    isWorkspaceSearchRequested ||
+    isWorkspaceListRequested;
   const isSkillToolRequested = toolNames.includes(AgentConstants.SKILL_TOOL);
   const isSandboxFileToolRequested = toolNames.some((name) =>
-    [AgentConstants.READ_FILE, AgentConstants.CREATE_FILE, AgentConstants.EDIT_FILE].includes(name),
+    [AgentConstants.READ_FILE, CREATE_FILE_TOOL_NAME, EDIT_FILE_TOOL_NAME].includes(name),
   );
 
   let enabledCapabilities;
@@ -2019,9 +2077,18 @@ async function loadToolsForExecution({
   if (actionsEnabled === undefined) {
     actionsEnabled = enabledCapabilities.has(AgentCapabilities.actions);
   }
+  /** Short-circuits before the role read, so an agent without `execute_code` or a
+   *  deployment with the capability off pays nothing for the check. */
   const codeExecutionEnabled =
     enabledCapabilities?.has(AgentCapabilities.execute_code) === true &&
-    agent?.tools?.includes(Tools.execute_code) === true;
+    agent?.tools?.includes(Tools.execute_code) === true &&
+    (await checkToolRolePermission({
+      req,
+      user: req?.user,
+      permissionType: PermissionTypes.RUN_CODE,
+      getRoleByName,
+      context: 'loadToolsForExecution',
+    }));
 
   /** Resolve the trusted endpoint/profile from the actually executing agent.
    * This stays per-agent across handoffs and subagents; no graph-global stateful
@@ -2076,7 +2143,15 @@ async function loadToolsForExecution({
     configurable.toolRegistry = toolRegistry;
   }
 
-  if (isPTC && toolRegistry) {
+  const canLoadPTC =
+    isPTC &&
+    toolRegistry != null &&
+    (await supportsProgrammaticCodeExecution(
+      codeExecutionContext,
+      req.config?.endpoints?.agents?.statefulCodeSessions?.environments,
+      getAppConfig,
+    ));
+  if (canLoadPTC) {
     configurable.toolRegistry = toolRegistry;
     try {
       /**
@@ -2084,7 +2159,7 @@ async function loadToolsForExecution({
        * library so PTC calls share the same managed auth context.
        */
       for (const name of ptcToolNames) {
-        const ptcTool = createBashProgrammaticToolCallingTool({
+        const ptcOptions = {
           authHeaders: () =>
             codeExecutionAuthHeaders(
               (bridgeWorkerId) => getCodeApiAuthHeaders(req, bridgeWorkerId),
@@ -2093,7 +2168,11 @@ async function loadToolsForExecution({
           baseUrl: codeExecutionContext.baseUrl,
           executionProfile: codeExecutionContext.executionProfile,
           runtimeSessionHint: codeExecutionContext.runtimeSessionHint,
-        });
+        };
+        const ptcTool =
+          codeExecutionContext.environmentType === 'attached'
+            ? createGitIdentityProgrammaticBashTool(ptcOptions, agent?.git_identity)
+            : createBashProgrammaticToolCallingTool(ptcOptions);
         ptcTool.name = name;
         allLoadedTools.push(ptcTool);
       }
@@ -2114,14 +2193,22 @@ async function loadToolsForExecution({
   }
   if (isBashTool) {
     try {
-      const bashTool = createBashExecutionTool({
-        authHeaders: () =>
-          codeExecutionAuthHeaders(
-            (bridgeWorkerId) => getCodeApiAuthHeaders(req, bridgeWorkerId),
-            codeExecutionContext,
-          ),
-        ...codeExecutionContext,
-      });
+      const authHeaders = () =>
+        codeExecutionAuthHeaders(
+          (bridgeWorkerId) => getCodeApiAuthHeaders(req, bridgeWorkerId),
+          codeExecutionContext,
+        );
+      const bashTool =
+        codeExecutionContext.environmentType === 'attached'
+          ? createAttachedWorkspaceBashTool({
+              authHeaders,
+              baseUrl: codeExecutionContext.baseUrl,
+              gitIdentity: agent?.git_identity,
+            })
+          : createBashExecutionTool({
+              authHeaders,
+              ...codeExecutionContext,
+            });
       allLoadedTools.push(bashTool);
     } catch (error) {
       logger.error(
@@ -2149,7 +2236,7 @@ async function loadToolsForExecution({
   ]);
 
   let ptcOrchestratedToolNames = [];
-  if (isPTC && toolRegistry) {
+  if (canLoadPTC) {
     ptcOrchestratedToolNames = Array.from(toolRegistry.values())
       .filter(
         (toolDef) =>

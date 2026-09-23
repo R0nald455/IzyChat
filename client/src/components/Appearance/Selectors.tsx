@@ -23,6 +23,8 @@ export const ThemeSelector = ({
 
   const themeOptions = [
     { value: 'light', label: localize('com_nav_theme_light') },
+    { value: 'high-contrast-light', label: localize('com_nav_theme_high_contrast_light') },
+    { value: 'high-contrast-dark', label: localize('com_nav_theme_high_contrast_dark') },
   ];
 
   const labelId = 'theme-selector-label';
