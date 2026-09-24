@@ -797,10 +797,9 @@ endpoints:
     # proteccion contra una llamada realmente descontrolada. Nunca poner 0, que
     # desactiva el guardia.
     #
-    # OJO: esto es una mitigacion, no la solucion. A ~60 casos el limite deja de
-    # ser el techo y pasa a serlo el presupuesto de tokens de salida del modelo,
-    # y el sintoma cambia a salida truncada. El arreglo de fondo es que
-    # `guardar_casos` reciba ids en vez de cuerpos y relea el log; ver el plan.
+    # `guardar_casos` ya no depende de esto: acepta hasta 10 casos por llamada
+    # (~26 KB) y el modelo parte el guardado en lotes. El techo alto queda como
+    # margen para lotes con pasos muy largos.
     maxToolCallArgBytesByTool:
       guardar_casos_mcp_izytesting: 262144
       redactar_casos_mcp_izytesting: 262144
