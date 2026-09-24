@@ -214,43 +214,19 @@ export const isAnthropicDocumentType = (mimeType?: string): boolean =>
   mimeType === 'application/pdf' || isAnthropicTextDocumentType(mimeType);
 
 /**
- * The Anthropic document types a file picker can actually offer (mirrors
- * `bedrockDocumentMimeTypes`).
+ * File extensions the provider document path accepts, for input `accept` attributes.
  *
- * `isAnthropicTextDocumentType` accepts *any* `text/*`, but an `accept`
- * attribute needs a finite list, so this is the subset this codebase knows how
- * to map to extensions. It is the picker's filter, not the allowlist: the
- * backend still validates against `supportedMimeTypes`, which is wider.
+ * Not provider-specific despite the Anthropic-flavoured helper names: in
+ * `filterProviderDocumentFiles` both paths allow the same set — Anthropic via
+ * `isAnthropicDocumentType`, and OpenAI-like providers via
+ * `mimeType === 'application/pdf' || isAnthropicTextDocumentType(mimeType)`.
+ * A PDF goes as a document; a textual type (json, xml, csv, yaml, plain text)
+ * is decoded and inlined as plain text instead.
  *
- * Deliberately narrower than `textualApplicationTypes`: `application/sql`,
- * `application/typescript` and `application/x-sh` are in `knownMimeUniverse`
- * but have no entry in `documentMimeExtensions`, so `isRepresentable` rejects
- * them. Listing them here would make `buildMimeAccept` bail out and silently
- * fall back to the provider filter — the opposite of what this list is for.
- * They stay reachable through the extensions below and through the backend
- * allowlist.
+ * Without this the picker falls back to images + PDF, hiding files the model
+ * would have received perfectly well.
  */
-export const anthropicDocumentMimeTypes: readonly string[] = [
-  'application/pdf',
-  'application/json',
-  'application/xml',
-  'application/yaml',
-  'application/csv',
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'text/tab-separated-values',
-  'text/html',
-  'text/calendar',
-];
-
-/**
- * File extensions accepted by Anthropic document uploads (for input accept
- * attributes). Without this the picker falls back to images + PDF, which hides
- * files the provider does accept — a `.json` or `.md` reaches the model as a
- * plain-text document source.
- */
-export const anthropicDocumentExtensions =
+export const textDocumentExtensions =
   '.pdf,.json,.xml,.yaml,.yml,.sql,.ts,.sh,.csv,.tsv,.txt,.md,.html,.htm,.ics,' +
   'application/pdf,application/json,application/xml,application/yaml,application/sql,' +
   'application/typescript,application/x-sh,application/csv,text/plain,text/markdown,' +
