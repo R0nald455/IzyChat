@@ -783,6 +783,32 @@ endpoints:
   #     #   claude-3.5-haiku:
   #     #     deploymentName: claude-3-5-haiku@20241022  # Override for this model
 
+  agents:
+    # Techo por herramienta para los argumentos de una tool call en streaming.
+    #
+    # El ciclo de generacion de IzyTesting (generar -> redactar -> guardar) le
+    # pide al modelo que **reescriba integro** lo que ya recibio: cada caso
+    # viaja con su cuerpo completo bajo `_original`. Con ~25 casos redactados
+    # eso supera los 64 KiB por defecto y la corrida se aborta entera, no solo
+    # la herramienta, asi que se pierde la redaccion.
+    #
+    # Se sube por herramienta y no el global, que es lo que hace el propio
+    # LibreChat con `create_file` (128 KiB): el resto de las tools conserva la
+    # proteccion contra una llamada realmente descontrolada. Nunca poner 0, que
+    # desactiva el guardia.
+    #
+    # OJO: esto es una mitigacion, no la solucion. A ~60 casos el limite deja de
+    # ser el techo y pasa a serlo el presupuesto de tokens de salida del modelo,
+    # y el sintoma cambia a salida truncada. El arreglo de fondo es que
+    # `guardar_casos` reciba ids en vez de cuerpos y relea el log; ver el plan.
+    maxToolCallArgBytesByTool:
+      guardar_casos_mcp_izytesting: 262144
+      redactar_casos_mcp_izytesting: 262144
+      crear_requerimientos_mcp_izytesting: 262144
+      importar_desde_mcp_izytesting: 262144
+      guardar_script_performance_mcp_izytesting: 262144
+      generar_script_performance_mcp_izytesting: 262144
+
   custom:
     # Anthropic-compatible Example (native `/v1/messages` API)
     # Set `provider: anthropic` to use the native Anthropic client instead of the

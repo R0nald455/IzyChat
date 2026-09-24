@@ -24,6 +24,8 @@ import {
   defaultAgentCapabilities,
   bedrockDocumentExtensions,
   isDocumentSupportedProvider,
+  anthropicDocumentMimeTypes,
+  anthropicDocumentExtensions,
 } from 'librechat-data-provider';
 import type {
   TConversation,
@@ -51,6 +53,7 @@ type FileUploadType =
   | 'document'
   | 'image_document'
   | 'image_document_extended'
+  | 'image_document_textual'
   | 'image_document_video_audio';
 
 /** What each provider upload path can actually send, used to scope the picker filter to selectable files. */
@@ -61,6 +64,11 @@ const fileTypeCapabilities: Record<FileUploadType, MimeUploadCapability> = {
   image_document_extended: {
     categories: ['image', 'document'],
     documentMimeTypes: bedrockDocumentMimeTypes,
+  },
+  /** Anthropic decodes textual types into a plain-text document source, so the picker offers them. */
+  image_document_textual: {
+    categories: ['image', 'document'],
+    documentMimeTypes: anthropicDocumentMimeTypes,
   },
   /** Google/Vertex/OpenRouter media path: documents are limited to PDF (see isProviderAttachType). */
   image_document_video_audio: {
@@ -158,6 +166,8 @@ const AttachFileMenu = ({
         inputRef.current.accept = 'image/*,.heif,.heic,.pdf,application/pdf';
       } else if (fileType === 'image_document_extended') {
         inputRef.current.accept = `image/*,.heif,.heic,${bedrockDocumentExtensions}`;
+      } else if (fileType === 'image_document_textual') {
+        inputRef.current.accept = `image/*,.heif,.heic,${anthropicDocumentExtensions}`;
       } else if (fileType === 'image_document_video_audio') {
         inputRef.current.accept = 'image/*,.heif,.heic,.pdf,application/pdf,video/*,audio/*';
       } else {
@@ -206,6 +216,11 @@ const AttachFileMenu = ({
               endpointType === EModelEndpoint.bedrock
             ) {
               fileType = 'image_document_extended';
+            } else if (
+              currentProvider === Providers.ANTHROPIC ||
+              endpointType === EModelEndpoint.anthropic
+            ) {
+              fileType = 'image_document_textual';
             }
             onAction(fileType);
           },
