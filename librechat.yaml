@@ -227,7 +227,7 @@ interface:
   multiConvo: false
   agents:
     use: true
-    create: false
+    create: true
     share: true
     public: false
 
@@ -371,11 +371,11 @@ registration:
 # no arrastra saldo al mes siguiente, y nadie puede gastar más de USD 4 al mes.
 balance:
   enabled: true
-  startBalance: 4000000
+  startBalance: 1000000
   autoRefillEnabled: true
   refillIntervalValue: 1
   refillIntervalUnit: months
-  refillAmount: 4000000
+  refillAmount: 1000000
 
 
 # Example Transactions settings
