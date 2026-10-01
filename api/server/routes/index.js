@@ -41,9 +41,13 @@ const user = require('./user');
 const mcp = require('./mcp');
 const rum = require('./rum');
 const insights = require('./insights');
+const internalIzyTesting = require('./internal/izytesting');
+const izytestingSession = require('./izytestingSession');
 
 module.exports = {
   insights,
+  internalIzyTesting,
+  izytestingSession,
   rum,
   mcp,
   auth,

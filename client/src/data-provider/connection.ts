@@ -81,6 +81,38 @@ export const useHealthCheck = (isAuthenticated = false) => {
   }, [isAuthenticated, queryClient]);
 };
 
+/**
+ * Polls every few seconds while authenticated so a session revoked from
+ * IzyTesting's side is noticed within seconds. A 401 here already flows
+ * through the normal axios response interceptor (attempts a refresh, then
+ * redirects to login when that refresh also fails) - this hook only needs to
+ * keep asking, not handle the failure itself.
+ */
+export const useIzyTestingSessionGuard = (isAuthenticated = false) => {
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const checkSession = () => {
+      dataService.checkIzyTestingSession().catch(() => {
+        /** Handled by the axios response interceptor (refresh + redirect). */
+      });
+    };
+
+    intervalRef.current = setInterval(checkSession, 5000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isAuthenticated]);
+};
+
 export const useInteractionHealthCheck = () => {
   const queryClient = useQueryClient();
   const lastInteractionTimeRef = useRef(Date.now());
