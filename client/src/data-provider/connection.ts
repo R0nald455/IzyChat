@@ -97,9 +97,20 @@ export const useIzyTestingSessionGuard = (isAuthenticated = false) => {
     }
 
     const checkSession = () => {
-      dataService.checkIzyTestingSession().catch(() => {
-        /** Handled by the axios response interceptor (refresh + redirect). */
-      });
+      console.log('[izytesting-session][DEBUG] check() ->');
+      dataService
+        .checkIzyTestingSession()
+        .then((res) => {
+          console.log('[izytesting-session][DEBUG] check() OK', res);
+        })
+        .catch((err) => {
+          console.log(
+            '[izytesting-session][DEBUG] check() FAIL',
+            err?.response?.status,
+            err?.response?.data,
+          );
+          /** Handled by the axios response interceptor (refresh + redirect). */
+        });
     };
 
     intervalRef.current = setInterval(checkSession, 5000);
