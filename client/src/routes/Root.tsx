@@ -105,7 +105,8 @@ export default function Root() {
   });
 
   useHealthCheck(isAuthenticated);
-  useIzyTestingSessionGuard(isAuthenticated);
+  const handleIzyTestingRevoked = useCallback(() => logout('/login?redirect=false'), [logout]);
+  useIzyTestingSessionGuard(isAuthenticated, handleIzyTestingRevoked);
 
   const assistantsMap = useAssistantsMap({ isAuthenticated });
   const agentsMap = useAgentsMap({ isAuthenticated });

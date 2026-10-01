@@ -1,6 +1,7 @@
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
 const requireIzyTestingServiceSecret = require('~/server/middleware/requireIzyTestingServiceSecret');
+const { markUserRevoked } = require('~/server/services/IzyTestingRevocation');
 const db = require('~/models');
 
 const router = express.Router();
@@ -13,7 +14,6 @@ const router = express.Router();
  */
 router.post('/logout', requireIzyTestingServiceSecret, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
-  console.log(`[internal/izytesting logout][DEBUG] solicitud recibida email=${email}`);
   if (!email) {
     return res.status(400).json({ message: 'email is required' });
   }
@@ -21,16 +21,16 @@ router.post('/logout', requireIzyTestingServiceSecret, async (req, res) => {
   try {
     const user = await db.findUser({ email }, ['_id']);
     if (!user) {
-      console.log(`[internal/izytesting logout][DEBUG] no existe usuario izybot con email=${email}`);
       return res.status(200).json({ revoked: false });
     }
 
-    await db.deleteAllUserSessions({ userId: user._id.toString() });
-    console.log(`[internal/izytesting logout][DEBUG] sesiones Mongo borradas para userId=${user._id.toString()}`);
+    await Promise.all([
+      markUserRevoked(user._id.toString()),
+      db.deleteAllUserSessions({ userId: user._id.toString() }),
+    ]);
     return res.status(200).json({ revoked: true });
   } catch (error) {
     logger.error('[internal/izytesting logout] Error revoking sessions', error);
-    console.log('[internal/izytesting logout][DEBUG] ERROR', error);
     return res.status(500).json({ message: 'Error revoking sessions' });
   }
 });

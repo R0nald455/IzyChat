@@ -83,44 +83,47 @@ export const useHealthCheck = (isAuthenticated = false) => {
 
 /**
  * Polls every few seconds while authenticated so a session revoked from
- * IzyTesting's side is noticed within seconds. A 401 here already flows
- * through the normal axios response interceptor (attempts a refresh, then
- * redirects to login when that refresh also fails) - this hook only needs to
- * keep asking, not handle the failure itself.
+ * IzyTesting's side is noticed within seconds. The axios interceptor first
+ * tries a refresh; a 401 that still reaches here means the refreshed token is
+ * revoked too, so `onRevoked` must end the session - otherwise every tick
+ * would refresh again and the app would sit in an endless refresh loop.
  */
-export const useIzyTestingSessionGuard = (isAuthenticated = false) => {
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+export const useIzyTestingSessionGuard = (isAuthenticated = false, onRevoked?: () => void) => {
+  const onRevokedRef = useRef(onRevoked);
+  onRevokedRef.current = onRevoked;
 
   useEffect(() => {
     if (!isAuthenticated) {
       return;
     }
 
+    let inFlight = false;
+    let revoked = false;
+
     const checkSession = () => {
-      console.log('[izytesting-session][DEBUG] check() ->');
+      if (inFlight || revoked) {
+        return;
+      }
+      inFlight = true;
       dataService
         .checkIzyTestingSession()
-        .then((res) => {
-          console.log('[izytesting-session][DEBUG] check() OK', res);
+        .catch((error) => {
+          if (error?.response?.status !== 401) {
+            return;
+          }
+          revoked = true;
+          clearInterval(interval);
+          logger.log('IzyTesting session revoked; logging out');
+          onRevokedRef.current?.();
         })
-        .catch((err) => {
-          console.log(
-            '[izytesting-session][DEBUG] check() FAIL',
-            err?.response?.status,
-            err?.response?.data,
-          );
-          /** Handled by the axios response interceptor (refresh + redirect). */
+        .finally(() => {
+          inFlight = false;
         });
     };
 
-    intervalRef.current = setInterval(checkSession, 5000);
+    const interval = setInterval(checkSession, 5000);
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 };
 
