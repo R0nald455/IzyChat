@@ -386,6 +386,8 @@ const startServer = async () => {
   app.use('/oauth', preAuthTenantMiddleware, routes.oauth);
   /* API Endpoints */
   app.use('/api/auth', preAuthTenantMiddleware, routes.auth);
+  app.use('/api/internal/izytesting', preAuthTenantMiddleware, routes.internalIzyTesting);
+  app.use('/api/izytesting-session', routes.izytestingSession);
   app.use('/api/insights', routes.insights);
   app.use('/api/admin', routes.adminAuth);
   app.use('/api/admin/config', routes.adminConfig);

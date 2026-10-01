@@ -35,7 +35,7 @@ import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import { TermsAndConditionsModal } from '~/components/ui';
 import useDrawerSwipe from '~/hooks/Nav/useDrawerSwipe';
-import { useHealthCheck } from '~/data-provider';
+import { useIzyTestingSessionGuard, useHealthCheck } from '~/data-provider';
 import { Banner } from '~/components/Banners';
 import store from '~/store';
 
@@ -105,6 +105,7 @@ export default function Root() {
   });
 
   useHealthCheck(isAuthenticated);
+  useIzyTestingSessionGuard(isAuthenticated);
 
   const assistantsMap = useAssistantsMap({ isAuthenticated });
   const agentsMap = useAgentsMap({ isAuthenticated });

@@ -1447,6 +1447,10 @@ export function healthCheck(): Promise<string> {
   return request.get(endpoints.health());
 }
 
+export function checkIzyTestingSession(): Promise<{ valid: boolean }> {
+  return request.get(endpoints.izyTestingSessionCheck());
+}
+
 export function getUserTerms(): Promise<t.TUserTermsResponse> {
   return request.get(endpoints.userTerms());
 }

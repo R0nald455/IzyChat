@@ -41,6 +41,7 @@ const buildQuery = (params: Record<string, unknown>): string => {
 };
 
 export const health = () => `${BASE_URL}/health`;
+export const izyTestingSessionCheck = () => `${BASE_URL}/api/izytesting-session/check`;
 export const user = () => `${BASE_URL}/api/user`;
 export const userPreferences = () => `${user()}/preferences`;
 
