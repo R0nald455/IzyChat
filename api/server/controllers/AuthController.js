@@ -27,6 +27,7 @@ const {
   updateUser,
   deleteTokens,
 } = require('~/models');
+const { isUserRevoked } = require('~/server/services/IzyTestingRevocation');
 const { getGraphApiToken } = require('~/server/services/GraphTokenService');
 const { getRefreshTokenBridge } = require('~/server/services/RefreshTokenBridge');
 const {
@@ -350,6 +351,16 @@ const refreshController = async (req, res) => {
 
     if (!refreshToken) {
       return res.status(200).send('Refresh token not provided');
+    }
+
+    const revocationUserId =
+      req.session?.openidTokens?.appUserId ?? getValidOpenIDReuseUserId(parsedCookies);
+    if (revocationUserId && (await isUserRevoked(revocationUserId))) {
+      logger.info('[refreshController] IzyTesting session revoked; refusing OpenID refresh', {
+        userId: revocationUserId,
+      });
+      clearOpenIDAuthTokens(req, res, revocationUserId, req.session?.openidTokens?.tenantId);
+      return res.status(403).send('Invalid OpenID refresh token');
     }
 
     try {

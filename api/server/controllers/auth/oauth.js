@@ -7,6 +7,7 @@ const {
   generateAdminExchangeCode,
 } = require('@librechat/api');
 const { syncUserEntraGroupMemberships } = require('~/server/services/PermissionService');
+const { clearUserRevoked } = require('~/server/services/IzyTestingRevocation');
 const { setAuthTokens } = require('~/server/services/AuthService');
 const { sendOpenIDAuthResponse } = require('~/server/services/OpenIDRefreshRecovery');
 const getLogStores = require('~/cache/getLogStores');
@@ -68,6 +69,10 @@ function createOAuthHandler(redirectUri = domains.client) {
         callbackUrl.searchParams.set('code', exchangeCode);
         logger.info(`[OAuth] Admin panel redirect with exchange code for user: ${req.user.email}`);
         return res.redirect(callbackUrl.toString());
+      }
+
+      if (req.user?._id) {
+        await clearUserRevoked(req.user._id.toString());
       }
 
       /** Standard OAuth flow - set cookies and redirect */

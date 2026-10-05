@@ -36,4 +36,12 @@ const isRequestRevoked = async (req, userId) => {
   return issuedAt == null || issuedAt <= revokedAt;
 };
 
-module.exports = { markUserRevoked, isRequestRevoked };
+/**
+ * The OpenID refresh path has no bearer to compare against, so any pending marker
+ * blocks it until the user completes a fresh interactive login (which clears it).
+ */
+const isUserRevoked = async (userId) => typeof (await revocations.get(userId)) === 'number';
+
+const clearUserRevoked = (userId) => revocations.delete(userId);
+
+module.exports = { markUserRevoked, isRequestRevoked, isUserRevoked, clearUserRevoked };
