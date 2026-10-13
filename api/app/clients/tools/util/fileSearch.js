@@ -3,8 +3,9 @@ const { logger } = require('@librechat/data-schemas');
 const { tool } = require('@librechat/agents/langchain/tools');
 const {
   logAxiosError,
-  selectFileCitationSources,
+  latestFileVersions,
   generateShortLivedToken,
+  selectFileCitationSources,
 } = require('@librechat/api');
 const { Tools, EModelEndpoint, EToolResources } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
@@ -38,7 +39,9 @@ const primeFiles = async (options) => {
   const { tool_resources, req, agentId, agentResourceType } = options;
   const file_ids = tool_resources?.[EToolResources.file_search]?.file_ids ?? [];
   const agentResourceIds = new Set(file_ids);
-  const resourceFiles = tool_resources?.[EToolResources.file_search]?.files ?? [];
+  const resourceFiles = latestFileVersions(
+    tool_resources?.[EToolResources.file_search]?.files ?? [],
+  );
 
   // Get all files first
   const allFiles = (await getFiles({ file_id: { $in: file_ids } }, null, { text: 0 })) ?? [];

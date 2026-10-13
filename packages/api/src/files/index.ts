@@ -20,4 +20,5 @@ export * from './sse';
 export * from './sweep';
 export * from './usage';
 export * from './validation';
+export * from './versions';
 export * from './text';

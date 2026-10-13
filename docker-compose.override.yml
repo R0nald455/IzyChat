@@ -20,15 +20,72 @@ services:
       target: node
     extra_hosts:
         - "host.docker.internal:host-gateway"
-    depends_on:
+    # `!override` reemplaza la lista del compose base, que incluye rag_api.
+    depends_on: !override
       - mongodb
-      - rag_api
+      - izy-models
       - browser-mcp
       - izytesting-mcp
+    environment:
+      # El RAG de adjuntos lo atiende izy-models (mismo contrato que rag_api).
+      - RAG_API_URL=http://izy-models:8000
     volumes:
     - type: bind
       source: ./librechat.yaml
       target: /app/librechat.yaml
+
+  # RAG local de adjuntos: reemplaza a rag_api + pgvector.
+  #
+  # Implementa los endpoints que LibreChat llama en RAG_API_URL (/embed, /query,
+  # /documents, /text...) con los modelos locales del wheel izy-models (bge-m3 int8,
+  # OCR PP-OCRv5 latin, Whisper base) y guarda los fragmentos en Qdrant. Nada sale
+  # del servidor; al LLM solo llegan los fragmentos relevantes para cada pregunta.
+  # Valida el token corto que firma LibreChat con JWT_SECRET. Si JWT_SECRET está vacío
+  # en .env, LibreChat genera uno en librechat-data/.env.temp (permisos 600): se monta
+  # en solo lectura y el servicio corre con el mismo usuario que LibreChat para leerlo.
+  # No publica puertos: solo se alcanza desde la red interna de compose.
+  # Qdrant: el mismo servidor que usa izy_testing_back, en su propia colección
+  # (izychat_files). Por defecto el Qdrant del host en :6333; IZY_QDRANT_URL lo cambia
+  # (y QDRANT_API_KEY va en izy-models-service/.env).
+  izy-models:
+    build:
+      context: ../izy-models-service
+    image: izy-models-service:dev
+    container_name: izy-models
+    restart: unless-stopped
+    user: "${UID}:${GID}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Configuración del servicio (modelos, tamaños, OCR, audio...). Lo de abajo la pisa.
+    env_file:
+      - path: ../izy-models-service/.env
+        required: false
+    environment:
+      - JWT_SECRET=${JWT_SECRET:-}
+      - LIBRECHAT_CREDENTIALS_FILE=/librechat-data/.env.temp
+      - QDRANT_URL=${IZY_QDRANT_URL:-http://host.docker.internal:6333}
+    volumes:
+      - librechat-data:/librechat-data:ro
+
+  # Qdrant propio del chat: ya no se usa (se comparte el del backend). Queda en un perfil
+  # por si hace falta: `docker compose --profile izychat-qdrant up -d` e
+  # IZY_QDRANT_URL=http://izychat-qdrant:6333.
+  izychat-qdrant:
+    profiles: ["izychat-qdrant"]
+    image: qdrant/qdrant:v1.19.1
+    container_name: izychat-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6335:6333"
+    volumes:
+      - izychat-qdrant-data:/qdrant/storage
+
+  # Reemplazados por izy-models: no se levantan salvo con `--profile legacy-rag`.
+  rag_api:
+    profiles: ["legacy-rag"]
+
+  vectordb:
+    profiles: ["legacy-rag"]
 
   # El MCP de IzyTesting como servicio compartido.
   #
@@ -85,6 +142,9 @@ services:
       - SESSION_IDLE_TIMEOUT=${SESSION_IDLE_TIMEOUT:-1800}
       - MAX_SESSIONS=${MAX_SESSIONS:-10}
       - ALLOWED_DOMAINS=${ALLOWED_DOMAINS:-}
+
+volumes:
+  izychat-qdrant-data:
 
 # ---------------------------------------------------
 

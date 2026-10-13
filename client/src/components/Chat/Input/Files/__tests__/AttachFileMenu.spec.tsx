@@ -10,6 +10,7 @@ jest.mock('~/hooks', () => ({
   useAgentCapabilities: jest.fn(),
   useGetAgentsConfig: jest.fn(),
   useFileHandlingNoChatContext: jest.fn(),
+  useHasAccess: jest.fn(),
   useLocalize: jest.fn(),
 }));
 
@@ -87,6 +88,7 @@ const mockUseAgentCapabilities = jest.requireMock('~/hooks').useAgentCapabilitie
 const mockUseGetAgentsConfig = jest.requireMock('~/hooks').useGetAgentsConfig;
 const mockUseFileHandlingNoChatContext = jest.requireMock('~/hooks').useFileHandlingNoChatContext;
 const mockUseLocalize = jest.requireMock('~/hooks').useLocalize;
+const mockUseHasAccess = jest.requireMock('~/hooks').useHasAccess;
 const mockUseSharePointFileHandling = jest.requireMock(
   '~/hooks/Files/useSharePointFileHandling',
 ).default;
@@ -114,6 +116,7 @@ function setupMocks(overrides: { provider?: string } = {}) {
     codeEnabled: false,
   });
   mockUseGetAgentsConfig.mockReturnValue({ agentsConfig: {} });
+  mockUseHasAccess.mockReturnValue(true);
   mockUseFileHandlingNoChatContext.mockReturnValue({ handleFileChange: jest.fn() });
   const sharePointReturnValue = {
     handleSharePointFiles: jest.fn(),
@@ -305,14 +308,46 @@ describe('AttachFileMenu', () => {
       expect(screen.getByText('Upload for File Search')).toBeInTheDocument();
     });
 
-    it('does NOT show File Search when enabled but not allowed by agent', () => {
+    it('does NOT show File Search when enabled but not allowed by a saved agent', () => {
       setupMocks();
       mockUseAgentCapabilities.mockReturnValue({
         contextEnabled: false,
         fileSearchEnabled: true,
         codeEnabled: false,
       });
-      renderMenu({ endpointType: EModelEndpoint.openAI });
+      renderMenu({ agentId: 'agent_123', endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.queryByText('Upload for File Search')).not.toBeInTheDocument();
+    });
+
+    it('shows File Search for an ephemeral agent before the file search toggle is on', () => {
+      setupMocks();
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: true,
+        codeEnabled: false,
+      });
+      renderMenu({ agentId: undefined, endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.getByText('Upload for File Search')).toBeInTheDocument();
+    });
+
+    it('does NOT show File Search for an ephemeral agent without file search permission', () => {
+      setupMocks();
+      mockUseHasAccess.mockReturnValue(false);
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: true,
+        codeEnabled: false,
+      });
+      renderMenu({ agentId: undefined, endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.queryByText('Upload for File Search')).not.toBeInTheDocument();
+    });
+
+    it('does NOT show File Search for an ephemeral agent when the capability is disabled', () => {
+      setupMocks();
+      renderMenu({ agentId: undefined, endpointType: EModelEndpoint.openAI });
       openMenu();
       expect(screen.queryByText('Upload for File Search')).not.toBeInTheDocument();
     });

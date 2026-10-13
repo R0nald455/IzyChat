@@ -3,11 +3,12 @@ const { ResourceType } = require('librechat-data-provider');
 
 jest.mock('axios');
 jest.mock('@librechat/api', () => {
-  const { selectFileCitationSources } = jest.requireActual('@librechat/api');
+  const { selectFileCitationSources, latestFileVersions } = jest.requireActual('@librechat/api');
   return {
     generateShortLivedToken: jest.fn(),
     logAxiosError: jest.fn(),
     selectFileCitationSources,
+    latestFileVersions,
   };
 });
 
@@ -51,6 +52,30 @@ describe('fileSearch.js - agent file authorization', () => {
       agentId: 'agent-123',
       resourceType: ResourceType.REMOTE_AGENT,
     });
+  });
+});
+
+describe('fileSearch.js - re-uploaded files', () => {
+  it('searches only the newest upload of a filename attached to the conversation', async () => {
+    const { getFiles } = require('~/models');
+    const agentFile = { file_id: 'agent-file', filename: 'requisitos.pdf' };
+    getFiles.mockResolvedValueOnce([agentFile]);
+
+    const { files, toolContext } = await primeFiles({
+      tool_resources: {
+        file_search: {
+          file_ids: ['agent-file'],
+          files: [
+            { file_id: 'v1', filename: 'requisitos.pdf', createdAt: '2026-10-09T10:00:00Z' },
+            { file_id: 'manual', filename: 'manual.pdf', createdAt: '2026-10-09T10:30:00Z' },
+            { file_id: 'v2', filename: 'requisitos.pdf', createdAt: '2026-10-09T11:00:00Z' },
+          ],
+        },
+      },
+    });
+
+    expect(files.map((file) => file.file_id)).toEqual(['agent-file', 'manual', 'v2']);
+    expect(toolContext.match(/requisitos\.pdf \(just attached by user\)/g)).toHaveLength(1);
   });
 });
 

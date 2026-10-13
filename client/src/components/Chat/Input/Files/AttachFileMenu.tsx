@@ -17,8 +17,10 @@ import {
 } from '@librechat/client';
 import {
   Providers,
+  Permissions,
   EToolResources,
   EModelEndpoint,
+  PermissionTypes,
   getConfiguredMimeAccept,
   bedrockDocumentMimeTypes,
   defaultAgentCapabilities,
@@ -37,14 +39,15 @@ import {
   useAgentCapabilities,
   useGetAgentsConfig,
   useFileHandlingNoChatContext,
+  useHasAccess,
   useLocalize,
 } from '~/hooks';
 import { useSharePointFileHandlingNoChatContext } from '~/hooks/Files/useSharePointFileHandling';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import { SharePointPickerDialog } from '~/components/SharePoint';
+import { MenuItemProps, isEphemeralAgent } from '~/common';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
-import { MenuItemProps } from '~/common';
 import { cn } from '~/utils';
 
 type FileUploadType =
@@ -136,6 +139,19 @@ const AttachFileMenu = ({
     ephemeralAgent,
   );
 
+  const canUseFileSearch = useHasAccess({
+    permissionType: PermissionTypes.FILE_SEARCH,
+    permission: Permissions.USE,
+  });
+
+  /**
+   * En un agente efímero, elegir "Subir para búsqueda de archivos" es lo que enciende
+   * `file_search` (ver el onClick). Exigir que ya estuviera encendido escondía la opción
+   * y el adjunto nunca se vectorizaba. Un agente guardado sigue necesitando la tool.
+   */
+  const showFileSearchUpload =
+    capabilities.fileSearchEnabled &&
+    (isEphemeralAgent(agentId) ? canUseFileSearch : fileSearchAllowedByAgent);
 
   const handleUploadClick = useCallback(
     (fileType?: FileUploadType) => {
@@ -243,7 +259,7 @@ const AttachFileMenu = ({
         });
       }
 
-      if (capabilities.fileSearchEnabled && fileSearchAllowedByAgent) {
+      if (showFileSearchUpload) {
         items.push({
           label: localize('com_ui_upload_file_search'),
           onClick: () => {
@@ -304,7 +320,7 @@ const AttachFileMenu = ({
     setEphemeralAgent,
     sharePointEnabled,
     codeAllowedByAgent,
-    fileSearchAllowedByAgent,
+    showFileSearchUpload,
     setIsSharePointDialogOpen,
   ]);
 
