@@ -12,17 +12,13 @@ import type {
   TSkillListResponse,
 } from './skills';
 import {
-  Tools,
   Assistant,
   AssistantCreateParams,
   AssistantUpdateParams,
-  FunctionTool,
   AssistantDocument,
-  Agent,
-  AgentCreateParams,
-  AgentUpdateParams,
 } from './assistants';
-import { Action, ActionMetadata } from './agents';
+import { Action, ActionMetadata, Agent, AgentCreateParams, AgentUpdateParams } from './agents';
+import { Tools, FunctionTool } from './tools';
 import * as p from '../permissions';
 import * as types from '../types';
 import * as r from '../roles';
@@ -51,6 +47,8 @@ export type TGenTitleRequest = {
 
 export type TGenTitleResponse = {
   title: string;
+  titleSetByUser?: boolean;
+  titleRevision?: number;
 };
 
 export type PresetDeleteResponse = {

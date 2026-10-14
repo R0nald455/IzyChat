@@ -48,6 +48,17 @@ function getAnthropicDocumentSource(
 }
 
 /**
+ * Whether the model behind this provider is Claude, which accepts only PDFs as base64
+ * documents. OpenAI-compatible gateways report an OpenAI-like provider for Claude models.
+ */
+function usesAnthropicDocumentCapabilities(provider: Providers, model?: string): boolean {
+  return (
+    provider === Providers.ANTHROPIC ||
+    (isOpenAILikeProvider(provider) && (model?.toLowerCase().includes('claude') ?? false))
+  );
+}
+
+/**
  * Formats a base64-encoded document into the appropriate provider-specific block.
  * Returns `null` when the provider has no matching handler.
  */
@@ -57,6 +68,7 @@ function formatDocumentBlock(
   content: string,
   filename: string | undefined,
   useResponsesApi: boolean | undefined,
+  model?: string,
 ): DocumentBlock | null {
   if (provider === Providers.ANTHROPIC) {
     const source = getAnthropicDocumentSource(mimeType, content);
@@ -86,6 +98,19 @@ function formatDocumentBlock(
   }
 
   const resolvedFilename = filename ?? 'document';
+
+  /* A gateway translates an OpenAI `file` part into a base64 document with the file's own
+   * media type, which Claude rejects for anything but PDF. Send textual files as text. */
+  if (
+    !useResponsesApi &&
+    isAnthropicTextDocumentType(mimeType) &&
+    usesAnthropicDocumentCapabilities(provider, model)
+  ) {
+    return {
+      type: 'text',
+      text: `File: "${resolvedFilename}"\n\n${Buffer.from(content, 'base64').toString('utf8')}`,
+    };
+  }
 
   if (useResponsesApi) {
     return {
@@ -152,11 +177,7 @@ function filterProviderDocumentFiles(
     return files.filter((file) => isBedrockDocumentType(file.type));
   }
 
-  const usesAnthropicDocumentCapabilities =
-    provider === Providers.ANTHROPIC ||
-    (isOpenAILikeProvider(provider) && model?.toLowerCase().includes('claude'));
-
-  if (usesAnthropicDocumentCapabilities) {
+  if (usesAnthropicDocumentCapabilities(provider, model)) {
     return partitionSupportedDocuments(files, isAnthropicDocumentType, 'Claude document input');
   }
 
@@ -308,6 +329,7 @@ export async function encodeAndFormatDocuments(
         content,
         file.filename,
         useResponsesApi,
+        model,
       );
       if (block) {
         result.documents.push(block);
@@ -321,9 +343,11 @@ export async function encodeAndFormatDocuments(
         );
       }
 
+      /* Claude behind an OpenAI-compatible gateway gets a native text part from formatDocumentBlock. */
       const needsTextFallback =
         isOpenAILikeProvider(provider) &&
         provider !== Providers.AZURE &&
+        !usesAnthropicDocumentCapabilities(provider, model) &&
         mimeType !== 'application/pdf';
 
       if (needsTextFallback) {
@@ -340,6 +364,7 @@ export async function encodeAndFormatDocuments(
         content,
         file.filename,
         useResponsesApi,
+        model,
       );
       if (block) {
         result.documents.push(block);

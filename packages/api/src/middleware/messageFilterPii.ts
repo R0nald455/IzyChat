@@ -15,6 +15,7 @@ import type {
   Response as ServerResponse,
 } from 'express';
 import type { FiltersConfig, MessageFilterPiiConfig } from 'librechat-data-provider';
+import type { LocatorTraversalReporter } from '../protection/diagnostics';
 import type { TextContentFragment } from '../protection/types';
 import {
   contentFilterUninspectableResponse,
@@ -142,9 +143,11 @@ export function findPiiMatchInMessages(
 }
 
 export interface CreateMessageFilterPiiOptions {
+  readonly onTraversalFailure?: LocatorTraversalReporter;
   getConfig: (req: ServerRequest) => MessageFilterPiiConfig | undefined;
   getFilters?: (req: ServerRequest) => FiltersConfig | undefined;
   getFiles?: GetCanonicalFilesForInspection;
+  getPreinspectedText?: (req: ServerRequest) => string | undefined;
 }
 
 export function createMessageFilterPii(options: CreateMessageFilterPiiOptions): RequestHandler {
@@ -172,6 +175,8 @@ export function createMessageFilterPii(options: CreateMessageFilterPiiOptions): 
     if (options.getFiles != null && hasActiveFilePolicy(filters)) {
       try {
         const fileInspection = await resolveCanonicalFileReferences({
+          messageCount: 1,
+          onTraversalFailure: options.onTraversalFailure,
           filters,
           input: req.body,
           user: (
@@ -237,7 +242,18 @@ export function createMessageFilterPii(options: CreateMessageFilterPiiOptions): 
     if (filters != null && !collect(() => extractStoredMessageContent(req.body))) {
       return;
     }
-    const finding = inspectContent(fragments, { filters, legacyPii });
+    const preinspectedText = options.getPreinspectedText?.(req);
+    const inspectable =
+      preinspectedText == null
+        ? fragments
+        : fragments.filter(
+            (fragment) =>
+              fragment.source !== 'message' ||
+              fragment.field !== 'text' ||
+              fragment.path !== '/text' ||
+              fragment.text !== preinspectedText,
+          );
+    const finding = inspectContent(inspectable, { filters, legacyPii });
     if (finding != null) {
       if (finding.detectorId !== 'legacy-pattern') {
         res.status(400).json(contentFilterBlockResponse(finding));

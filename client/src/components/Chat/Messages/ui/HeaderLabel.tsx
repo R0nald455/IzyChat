@@ -11,16 +11,32 @@ type HeaderLabelProps = {
  *  header. */
 const DOCUMENT_ID_PREFIXES = ['agent_', 'asst_'];
 
+/** An agent or assistant document id: a storage key, never a name to show. */
+export const isDocumentId = (value: string): boolean =>
+  DOCUMENT_ID_PREFIXES.some((prefix) => value.startsWith(prefix));
+
 /** Skip document ids so the hover label is a real model name. */
 export function getHeaderModelName(
   ...candidates: Array<string | null | undefined>
 ): string | undefined {
   return candidates.find(
-    (value): value is string =>
-      value != null &&
-      value !== '' &&
-      !DOCUMENT_ID_PREFIXES.some((prefix) => value.startsWith(prefix)),
+    (value): value is string => value != null && value !== '' && !isDocumentId(value),
   );
+}
+
+/** A preset or model spec that configured the sender has chosen what the header
+ *  says, and `message.sender` already honours it. Revealing the model on hover
+ *  would undo that choice, so no hover label is produced at all; the sr-only
+ *  "Model:" text carries the same value and goes with it. Callers pass
+ *  `hasConfiguredSender` first, then the candidates `getHeaderModelName` takes. */
+export function getHeaderHoverLabel(
+  hasConfiguredSender: boolean | undefined,
+  ...candidates: Array<string | null | undefined>
+): string | undefined {
+  if (hasConfiguredSender === true) {
+    return undefined;
+  }
+  return getHeaderModelName(...candidates);
 }
 
 /** Both names occupy one grid cell so the slot is sized by the longer of the
@@ -50,7 +66,7 @@ export default function HeaderLabel({ label, hoverLabel }: HeaderLabelProps) {
   }
 
   return (
-    <span className="group/label inline-grid min-w-0 max-w-full">
+    <span className="group/label inline-grid max-w-full min-w-0">
       <span
         className={cn(
           labelSlot,
@@ -67,10 +83,10 @@ export default function HeaderLabel({ label, hoverLabel }: HeaderLabelProps) {
         className={cn(
           labelSlot,
           'translate-y-1 opacity-0 blur-[2px]',
-          'group-hover/label:translate-y-0 group-hover/label:opacity-100 group-hover/label:blur-0',
+          'group-hover/label:translate-y-0 group-hover/label:opacity-100 group-hover/label:blur-none',
           'group-focus-visible:translate-y-0 group-has-[:focus-visible:not(:is(input,textarea,[contenteditable]))]:translate-y-0',
           'group-focus-visible:opacity-100 group-has-[:focus-visible:not(:is(input,textarea,[contenteditable]))]:opacity-100',
-          'group-focus-visible:blur-0 group-has-[:focus-visible:not(:is(input,textarea,[contenteditable]))]:blur-0',
+          'group-focus-visible:blur-none group-has-[:focus-visible:not(:is(input,textarea,[contenteditable]))]:blur-none',
         )}
       >
         {hoverLabel}

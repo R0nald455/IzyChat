@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { MessagesSquare, NotebookPen } from 'lucide-react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { MutableSnapshot } from 'recoil';
 import type { NavLink } from '~/common';
 import { ActivePanelProvider, DEFAULT_PANEL } from '~/Providers';
 
@@ -15,10 +14,6 @@ const mockClearMessagesCache = jest.fn();
 jest.mock('~/store', () => {
   const { atom } = jest.requireActual('recoil');
   let counter = 0;
-  const switchAtom = atom({
-    key: 'mock-newChatSwitchToHistory',
-    default: true,
-  });
   const customShortcutsAtom = atom({
     key: 'mock-customShortcuts',
     default: {},
@@ -34,7 +29,6 @@ jest.mock('~/store', () => {
         atom({ key: `mock-conversationByIndex-${counter++}`, default: null }),
       conversationIdByIndex: () =>
         atom({ key: `mock-conversationIdByIndex-${counter++}`, default: null }),
-      newChatSwitchToHistory: switchAtom,
       customShortcuts: customShortcutsAtom,
       shortcutsEnabled: shortcutsEnabledAtom,
     },
@@ -44,6 +38,7 @@ jest.mock('~/store', () => {
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useNewConvo: () => ({ newConversation: mockNewConversation }),
+  useShowMarketplace: () => false,
 }));
 
 /**
@@ -86,7 +81,6 @@ jest.mock('~/components/Nav/AccountSettings', () => ({
 }));
 
 import ExpandedPanel from '../ExpandedPanel';
-import store from '~/store';
 
 const createLinks = (): NavLink[] => [
   {
@@ -110,7 +104,7 @@ function renderPanel({
   onExpand = jest.fn(),
   onNavigate,
   initialPanel = DEFAULT_PANEL,
-  initializeState,
+  switchToHistory = true,
 }: {
   expanded?: boolean;
   links?: NavLink[];
@@ -118,7 +112,7 @@ function renderPanel({
   onExpand?: jest.Mock;
   onNavigate?: jest.Mock;
   initialPanel?: string;
-  initializeState?: (snapshot: MutableSnapshot) => void;
+  switchToHistory?: boolean;
 } = {}) {
   if (initialPanel !== DEFAULT_PANEL) {
     localStorage.setItem('side:active-panel', initialPanel);
@@ -127,7 +121,7 @@ function renderPanel({
   const result = render(
     <MemoryRouter>
       <QueryClientProvider client={createQueryClient()}>
-        <RecoilRoot initializeState={initializeState}>
+        <RecoilRoot>
           <ActivePanelProvider>
             <ExpandedPanel
               links={links}
@@ -135,6 +129,7 @@ function renderPanel({
               onCollapse={onCollapse}
               onExpand={onExpand}
               onNavigate={onNavigate}
+              switchToHistory={switchToHistory}
             />
           </ActivePanelProvider>
         </RecoilRoot>
@@ -218,9 +213,7 @@ describe('ExpandedPanel', () => {
       renderPanel({
         expanded: true,
         initialPanel: 'prompts',
-        initializeState: ({ set }: MutableSnapshot) => {
-          set(store.newChatSwitchToHistory, false);
-        },
+        switchToHistory: false,
       });
 
       const newChatLink = screen.getByTestId('new-chat-button');

@@ -1,11 +1,19 @@
 import { z } from 'zod';
-import type { TMessageContentParts, AgentSubagentGraph, FunctionTool } from './types/assistants';
+import type { TMessageContentParts } from './types/content';
+import type { AgentSubagentGraph } from './types/agents';
 import type { SearchResultData } from './types/web';
+import type { FunctionTool } from './types/tools';
 import type { TFile } from './types/files';
+import {
+  CODE_ENVIRONMENT_MODES,
+  CODE_WORKSPACE_ID_PATTERN,
+  CODE_WORKSPACE_CHECKOUT_MODES,
+  MAX_AGENT_CODE_ENVIRONMENT_CHOICES,
+} from './code/workspace';
 import { userSubmittedMessageFieldPathSchema } from './filters';
 import { TFeedback, feedbackSchema } from './feedback';
 import { CODE_APPROVAL_MODES } from './code/approval';
-import { Tools } from './types/assistants';
+import { Tools } from './types/tools';
 
 export const isUUID = z.string().uuid();
 
@@ -109,7 +117,41 @@ export const inputTokensIncludesCache = (provider?: string | null): boolean => {
 };
 
 export const isDocumentSupportedProvider = (provider?: string | null): boolean => {
-  return documentSupportedProviders.has(provider ?? '');
+  const normalized = provider?.toLowerCase() ?? '';
+  return Array.from(documentSupportedProviders).some(
+    (candidate) => candidate.toLowerCase() === normalized,
+  );
+};
+
+/**
+ * Endpoints whose encoders actually build native audio/video payloads. Narrower than
+ * `documentSupportedProviders`: a provider can accept PDFs and still emit nothing for
+ * media, in which case the upload has to fall back to text/STT.
+ */
+export const mediaSupportedProviders = new Set<string>([
+  EModelEndpoint.google,
+  Providers.VERTEXAI,
+  Providers.OPENROUTER,
+]);
+
+export const isMediaSupportedProvider = (provider?: string | null): boolean => {
+  return mediaSupportedProviders.has(provider?.toLowerCase() ?? '');
+};
+
+/**
+ * Built-in endpoint and provider identifiers. A name outside this set is a custom
+ * endpoint whose real provider is resolved at request time, so its capabilities
+ * cannot be judged from the name alone.
+ */
+const knownProviderIdentifiers = new Set<string>([
+  ...Object.values(EModelEndpoint),
+  ...Object.values(Providers),
+  ...Object.values(EModelEndpoint).map((provider) => provider.toLowerCase()),
+  ...Object.values(Providers).map((provider) => provider.toLowerCase()),
+]);
+
+export const isKnownProviderIdentifier = (provider?: string | null): boolean => {
+  return knownProviderIdentifiers.has(provider?.toLowerCase() ?? '');
 };
 
 export const paramEndpoints = new Set<EModelEndpoint | string>([
@@ -234,6 +276,9 @@ export enum AnthropicEffort {
  *   omit by default (Opus 4.7+), leave the field off for older models.
  * - `'summarized'` - always request a post-hoc summary of the reasoning.
  * - `'omitted'` - always suppress reasoning content. Slightly lower latency.
+ * - `'updates'` - return only the progress notes Claude writes between tool
+ *   calls (mid-thinking display updates); reasoning blocks stay empty. Needs
+ *   the `thinking-display-updates-2026-08-18` beta header.
  *
  * See https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-7#thinking-content-omitted-by-default
  */
@@ -241,6 +286,7 @@ export enum ThinkingDisplay {
   auto = 'auto',
   summarized = 'summarized',
   omitted = 'omitted',
+  updates = 'updates',
 }
 
 /**
@@ -316,6 +362,37 @@ export const eThinkingLevelSchema = z.nativeEnum(ThinkingLevel);
 export const eReasoningModeSchema = z.nativeEnum(ReasoningMode);
 export const eReasoningContextSchema = z.nativeEnum(ReasoningContext);
 
+export const reasoningOverrideSchema = z.discriminatedUnion('key', [
+  z
+    .object({
+      key: z.literal('reasoning_effort'),
+      value: eReasoningEffortSchema,
+    })
+    .strict(),
+  z
+    .object({
+      key: z.literal('effort'),
+      value: eAnthropicEffortSchema,
+    })
+    .strict(),
+  z
+    .object({
+      key: z.literal('thinkingLevel'),
+      value: eThinkingLevelSchema,
+    })
+    .strict(),
+  z
+    .object({
+      key: z.literal('thinkingBudget'),
+      /* No fixed ceiling: an operator's paramDefinitions may widen the range,
+         and the request is checked against the resolved range server-side. */
+      value: z.number().int().min(-1).max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+]);
+
+export type TReasoningOverride = z.infer<typeof reasoningOverrideSchema>;
+
 export const defaultAssistantFormValues = {
   assistant: '',
   id: '',
@@ -351,11 +428,15 @@ export const defaultAgentFormValues = {
   [Tools.memory]: false,
   stateful_code_environment: 'user' as const,
   code_environment_id: undefined as string | null | undefined,
+  code_environment_ids: [] as string[],
+  code_workspace_id: undefined as string | undefined,
+  repositoryInstructions: undefined as 'prefer' | 'defer' | 'off' | undefined,
   category: 'general',
   support_contact: {
     name: '',
     email: '',
   },
+  conversation_starters: [] as string[],
   /** Optional allowlist. Only applies when `skills_enabled === true`.
    *  Empty/undefined + enabled = full catalog; non-empty + enabled = narrow to ids. */
   skills: undefined as string[] | undefined,
@@ -730,7 +811,12 @@ export const anthropicSettings = {
   },
   thinkingDisplay: {
     default: ThinkingDisplay.auto,
-    options: [ThinkingDisplay.auto, ThinkingDisplay.summarized, ThinkingDisplay.omitted],
+    options: [
+      ThinkingDisplay.auto,
+      ThinkingDisplay.summarized,
+      ThinkingDisplay.omitted,
+      ThinkingDisplay.updates,
+    ],
   },
   web_search: {
     default: false as const,
@@ -838,7 +924,7 @@ export type TExample = z.infer<typeof tExampleSchema>;
 
 /** Compact context-fading tier persisted beside a message's calibration ratio. */
 const agentFadingTierSchema = z.object({
-  v: z.literal(1),
+  v: z.union([z.literal(1), z.literal(2)]),
   budgetTokens: z.number().positive(),
   masked: z.boolean(),
 });
@@ -859,6 +945,8 @@ export const tMessageSchema = z.object({
   /** @deprecated */
   generation: z.string().nullable().optional(),
   isCreatedByUser: z.boolean(),
+  /** Opaque revision of the separately authorized owner display. */
+  privacyRevision: z.string().optional(),
   /** True when the complete stored row came from outside the model. */
   isUserSubmitted: z.boolean().optional(),
   /** JSON pointers to caller-authored fields in an otherwise mixed model response. */
@@ -940,6 +1028,8 @@ export const tMessageSchema = z.object({
    * request time and counted in the user message token count.
    */
   quotes: z.array(z.string()).optional(),
+  /** Request-scoped reasoning selection that produced this user turn. */
+  reasoningOverride: reasoningOverrideSchema.optional(),
 });
 
 /**
@@ -986,8 +1076,30 @@ export type MemoryArtifact = {
 export type UIResource = {
   resourceId: string;
   uri: string;
+  name?: string;
   mimeType?: string;
   text?: string;
+  serverName?: string;
+  toolName?: string;
+  /** Opaque server-issued binding required for executable MCP App callbacks. */
+  serverBinding?: string;
+  structuredContent?: Record<string, unknown>;
+  content?: unknown[];
+  csp?: {
+    connectDomains?: string[];
+    resourceDomains?: string[];
+    frameDomains?: string[];
+    baseUriDomains?: string[];
+  };
+  permissions?: {
+    camera?: Record<string, never>;
+    microphone?: Record<string, never>;
+    geolocation?: Record<string, never>;
+    clipboardWrite?: Record<string, never>;
+  };
+  toolArgs?: Record<string, unknown>;
+  isError?: boolean;
+  resultMeta?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -1029,6 +1141,8 @@ export type TMessage = z.input<typeof tMessageSchema> & {
   siblingIndex?: number;
   attachments?: TAttachment[];
   clientTimestamp?: string;
+  /** Client-only durable branch anchor while this message is an optimistic response. */
+  clientQueueParentMessageId?: string;
   feedback?: TFeedback;
 };
 
@@ -1082,7 +1196,27 @@ export const tConversationSchema = z.object({
   /** Server-derived: an active shared link exists for this conversation. Not persisted. */
   isShared: z.boolean().optional(),
   codeApprovalMode: z.enum(CODE_APPROVAL_MODES).optional(),
+  codeEnvironmentMode: z.enum(CODE_ENVIRONMENT_MODES).optional(),
+  codeWorkspaces: z
+    .array(
+      z
+        .object({
+          environmentId: z.string().regex(CODE_WORKSPACE_ID_PATTERN),
+          workspaceId: z.string().regex(CODE_WORKSPACE_ID_PATTERN),
+          checkout: z.enum(CODE_WORKSPACE_CHECKOUT_MODES).optional(),
+          agentIds: z
+            .array(z.string().regex(CODE_WORKSPACE_ID_PATTERN))
+            .min(1)
+            .max(MAX_AGENT_CODE_ENVIRONMENT_CHOICES)
+            .optional(),
+        })
+        .strict(),
+    )
+    .optional(),
   title: z.string().nullable().or(z.literal('New Chat')).default('New Chat'),
+  /** Server-owned title authority; ordinary chat saves cannot set or clear it. */
+  titleSetByUser: z.boolean().optional(),
+  titleRevision: z.number().int().nonnegative().optional(),
   user: z.string().optional(),
   messages: z.array(z.string()).optional(),
   tools: z.union([z.array(tPluginSchema), z.array(z.string())]).optional(),
@@ -1118,6 +1252,16 @@ export const tConversationSchema = z.object({
   chatProjectId: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** Set only when an assistant message is persisted; drives the unseen-reply indicator. */
+  lastResponseAt: z.string().optional(),
+  /** Durable messageId of the assistant reply named by `lastResponseAt`. */
+  lastResponseMessageId: z.string().optional(),
+  /** True only while `lastResponseAt` is the synthetic marker from "mark unread". */
+  lastResponseIsManual: z.boolean().optional(),
+  /** True: manual reminder; false: real reply; absent: legacy/unknown intent. */
+  isMarkedUnread: z.boolean().optional(),
+  /** Read acknowledgement; epoch is the explicit unseen-reply watermark. */
+  lastSeenAt: z.string().optional(),
   /* Files */
   resendFiles: z.boolean().optional(),
   file_ids: z.array(z.string()).optional(),
@@ -1182,6 +1326,15 @@ export const tPresetSchema = tConversationSchema
     createdAt: true,
     updatedAt: true,
     title: true,
+    titleSetByUser: true,
+    titleRevision: true,
+    /* Runtime unseen-reply state must not ride into presets: applying one would stamp
+       stale timestamps back onto conversations. */
+    lastResponseAt: true,
+    lastResponseMessageId: true,
+    lastResponseIsManual: true,
+    isMarkedUnread: true,
+    lastSeenAt: true,
   })
   .merge(
     z.object({

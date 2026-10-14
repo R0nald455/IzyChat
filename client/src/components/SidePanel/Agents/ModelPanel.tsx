@@ -2,14 +2,20 @@ import React, { useMemo, useEffect } from 'react';
 import { ChevronLeft, RotateCcw } from 'lucide-react';
 import { Alert, Button, ControlCombobox } from '@librechat/client';
 import { useFormContext, useWatch, Controller } from 'react-hook-form';
-import { alternateName, LocalStorageKeys, resolveModelCatalogKey } from 'librechat-data-provider';
+import {
+  Permissions,
+  alternateName,
+  PermissionTypes,
+  LocalStorageKeys,
+  resolveModelCatalogKey,
+} from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { AgentForm, AgentModelPanelProps, StringOption } from '~/common';
 import { pruneAgentModelParameters, resolveAgentParameterSettings } from './parameters';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
+import { useLocalize, useHasAccess } from '~/hooks';
 import { useLiveAnnouncer } from '~/Providers';
-import { useLocalize } from '~/hooks';
 import { Panel } from '~/common';
 import { cn } from '~/utils';
 
@@ -63,6 +69,11 @@ export default function ModelPanel({
     return endpointsConfig?.[provider]?.availableRegions ?? [];
   }, [endpointsConfig, provider]);
 
+  const webSearchAllowed = useHasAccess({
+    permissionType: PermissionTypes.WEB_SEARCH,
+    permission: Permissions.USE,
+  });
+
   const parameterSettings = useMemo(
     () =>
       resolveAgentParameterSettings({
@@ -70,10 +81,17 @@ export default function ModelPanel({
         model: model ?? '',
         provider,
         startupConfig,
+        webSearchAllowed,
       }),
-    [endpointsConfig, model, provider, startupConfig],
+    [endpointsConfig, model, provider, startupConfig, webSearchAllowed],
   );
-  const { parameters } = parameterSettings;
+  /** The rendered set omits role-gated controls; `parameterSettings.parameters`
+   *  stays complete so the pruning effect below still recognises them. */
+  const { visibleParameters: parameters } = parameterSettings;
+  const webSearchBlocked =
+    !webSearchAllowed &&
+    (modelParameters?.web_search === true ||
+      parameterSettings.parameters.some((parameter) => parameter.key === 'web_search'));
 
   /**
    * Prunes `model_parameters` entries that no longer have a visible control (e.g. a
@@ -108,14 +126,17 @@ export default function ModelPanel({
           size="icon"
           onClick={() => setActivePanel(Panel.builder)}
           aria-label={localize('com_ui_back_to_builder')}
-          className="h-10 w-10 flex-shrink-0 rounded-xl text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
+          className="text-text-secondary hover:bg-surface-secondary hover:text-text-primary shrink-0 rounded-xl"
         >
           <ChevronLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         </Button>
-        <h2 className="text-center text-base font-semibold text-text-primary">
+        <h2 className="text-text-primary text-center text-base font-semibold">
           {localize('com_ui_model_parameters')}
         </h2>
-        <span aria-hidden="true" className="h-10 w-10" />
+        <span
+          aria-hidden="true"
+          className="size-theme-button min-h-theme-target min-w-theme-target"
+        />
       </header>
       <div>
         {/* Endpoint aka Provider for Agents */}
@@ -123,7 +144,7 @@ export default function ModelPanel({
           <label
             id="provider-label"
             className={cn(
-              'mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-secondary',
+              'text-text-secondary mb-1 block text-[11px] font-medium tracking-wide uppercase',
               modelsPending && 'opacity-60',
             )}
             htmlFor="provider"
@@ -171,14 +192,14 @@ export default function ModelPanel({
                       label: typeof provider === 'string' ? provider : provider.label,
                       value: typeof provider === 'string' ? provider : provider.value,
                     }))}
-                    className={cn(error ? 'border-2 border-border-destructive' : '')}
+                    className={cn(error ? 'border-border-destructive border-2' : '')}
                     ariaLabel={localize('com_ui_provider')}
                     disabled={selectionDisabled}
                     isCollapsed={false}
                     showCarat={true}
                   />
                   {error && (
-                    <span className="mt-1 text-xs text-text-destructive" role="alert">
+                    <span className="text-text-destructive mt-1 text-xs" role="alert">
                       {localize('com_ui_field_required')}
                     </span>
                   )}
@@ -192,7 +213,7 @@ export default function ModelPanel({
           <label
             id="model-label"
             className={cn(
-              'mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-secondary',
+              'text-text-secondary mb-1 block text-[11px] font-medium tracking-wide uppercase',
               (!provider || modelsPending) && 'opacity-60',
             )}
             htmlFor="model"
@@ -227,14 +248,14 @@ export default function ModelPanel({
                     disabled={!provider || selectionDisabled}
                     className={cn(
                       'disabled:opacity-50',
-                      error ? 'border-2 border-border-destructive' : '',
+                      error ? 'border-border-destructive border-2' : '',
                     )}
                     ariaLabel={localize('com_ui_model')}
                     isCollapsed={false}
                     showCarat={true}
                   />
                   {provider && error && (
-                    <span className="mt-1 text-xs text-text-destructive" role="alert">
+                    <span className="text-text-destructive mt-1 text-xs" role="alert">
                       {localize('com_ui_field_required')}
                     </span>
                   )}
@@ -249,6 +270,11 @@ export default function ModelPanel({
           )}
         </div>
       </div>
+      {webSearchBlocked && (
+        <Alert variant="warning" role="status">
+          {localize('com_ui_native_web_search_denied')}
+        </Alert>
+      )}
       {/* Model Parameters */}
       {parameters && (
         <div className="h-auto max-w-full">
@@ -284,7 +310,7 @@ export default function ModelPanel({
       <Button
         variant="outline"
         onClick={handleResetParameters}
-        className="mt-2 h-9 w-full rounded-xl px-4 font-medium text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
+        className="text-text-secondary hover:bg-surface-secondary hover:text-text-primary mt-2 h-9 w-full rounded-xl px-4 font-medium"
       >
         <RotateCcw className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
         {localize('com_ui_reset_var', { 0: localize('com_ui_model_parameters') })}

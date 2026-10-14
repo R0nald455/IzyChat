@@ -31,6 +31,7 @@ import { useChatFormContext, useUploadModalContext } from '~/Providers';
 import useComposerBindings from '~/hooks/Input/useComposerBindings';
 import useFileUploadRouter from '~/hooks/Files/useFileUploadRouter';
 import { useAgentsMapContext } from '~/Providers/AgentsMapContext';
+import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import useGetSender from '~/hooks/Conversations/useGetSender';
 import useUploadOptions from '~/hooks/Files/useUploadOptions';
 import { useInteractionHealthCheck } from '~/data-provider';
@@ -51,6 +52,7 @@ export default function useTextarea({
   allowSubmitWhileGenerating = false,
   onDuringRunModifier,
   answerModeActive = false,
+  enterToSend,
 }: {
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   submitButtonRef: React.RefObject<HTMLButtonElement>;
@@ -64,6 +66,8 @@ export default function useTextarea({
   onDuringRunModifier?: (kind: 'other' | 'interrupt' | 'preempt') => void;
   /** Keeps pasted text inline while the composer is answering a paused question. */
   answerModeActive?: boolean;
+  /** Host-owned: whether Enter sends. The hint advertises the same value. */
+  enterToSend: boolean;
 }) {
   const localize = useLocalize();
   const getSender = useGetSender();
@@ -75,13 +79,14 @@ export default function useTextarea({
     getOptions: getUploadOptions,
     uploadsDisabled,
     isConfigPending: isUploadConfigPending,
+    isConfigResolved: isUploadConfigResolved,
+    isUnifiedMode,
   } = useUploadOptions();
   const routeFiles = useFileUploadRouter();
   const { openModal } = useUploadModalContext();
   const assistantMap = useAssistantsMapContext();
   const checkHealth = useInteractionHealthCheck();
-  const enterToSend = useRecoilValue(store.enterToSend);
-  const saveDrafts = useRecoilValue(store.saveDrafts);
+  const { saveDrafts } = useChatSettings();
   const pasteLongTextAsFile = useRecoilValue(store.pasteLongTextAsFile);
   const { shortcutsEnabled, submitOverride, yieldedChords } = useComposerBindings();
 
@@ -152,12 +157,20 @@ export default function useTextarea({
    *  navigation that resolves its record before moving the route. */
   useEffect(() => {
     const text = pendingComposerText ?? '';
-    if (text === '' || !insertComposerText(text)) {
+    if (text === '') {
+      return;
+    }
+    /* A reclaimed steer must not overwrite a draft the user typed while the
+     * cancel request was in flight. Keep both messages distinct when the
+     * composer already owns text; an empty composer receives the exact steer. */
+    const currentText = textAreaRef.current?.value ?? '';
+    const handoffText = currentText.length > 0 ? `\n${text}` : text;
+    if (!insertComposerText(handoffText)) {
       return;
     }
 
     setPendingComposerText(undefined);
-  }, [insertComposerText, pendingComposerText, setPendingComposerText]);
+  }, [insertComposerText, pendingComposerText, setPendingComposerText, textAreaRef]);
 
   useEffect(() => {
     const currentValue = textAreaRef.current?.value ?? '';
@@ -334,6 +347,21 @@ export default function useTextarea({
           return await upload();
         }
 
+        /* Unified mode decides the destination from the file itself, matching the drop
+         * handler. A caller that already knows where the file belongs, as the long-text
+         * paste does, still passes that through. */
+        if (isUnifiedMode && preferred == null) {
+          return await upload();
+        }
+
+        /* Before the config lands neither answer is safe, so the paste says so rather than
+         * falling through to the chooser a unified deployment no longer shows. */
+        if (preferred == null && !isUploadConfigResolved) {
+          showToast({ message: localize('com_ui_attach_error_pending'), status: 'warning' });
+          setFilesLoading(false);
+          return false;
+        }
+
         /** Resolving options reads the file config, so until that lands the list is empty for
          * reasons that have nothing to do with this file. A caller that already knows where the
          * file belongs hands it to the upload instead, which waits for the same config and
@@ -372,6 +400,8 @@ export default function useTextarea({
       setFilesLoading,
       getUploadOptions,
       isUploadConfigPending,
+      isUploadConfigResolved,
+      isUnifiedMode,
     ],
   );
 
@@ -452,7 +482,7 @@ export default function useTextarea({
       if (saveDrafts && isFilesDraftOwnedByThisTab(getFilesDraft(draftId))) {
         addPastedTextDraftFile({ id: draftId, fileId: pendingFileId });
         try {
-          setDraft({ id: draftId, value: composerValue, persistExact: true });
+          setDraft({ id: draftId, value: composerValue });
           setPendingTextAttachmentDraft({
             id: draftId,
             fileId: pendingFileId,

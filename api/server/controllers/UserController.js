@@ -1,8 +1,14 @@
+const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
-const { logger } = require('@librechat/data-schemas');
+const { logger, runAsSystem, tenantStorage } = require('@librechat/data-schemas');
 const {
   getNewS3URL,
   needsRefresh,
+  comparePassword,
+  checkEmailConfig,
+  createEmailChangeService,
+  createEmailChangeDeps,
+  resolveEmailChangeSettings,
   GenerationJobManager,
   getAppConfigOptionsFromUser,
   normalizeHttpError,
@@ -13,6 +19,7 @@ const {
   waitForGenerationPersistence,
   deleteAllSharedLinksWithCleanup,
   revokeUserCodeEnvironmentWorkers,
+  finalizeMCPAuthorizationMutation,
 } = require('@librechat/api');
 const { Tools, Constants, FileSources, ResourceType } = require('librechat-data-provider');
 const { updateUserPluginAuth, deleteUserPluginAuth } = require('~/server/services/PluginService');
@@ -21,6 +28,10 @@ const { verifyEmail, resendVerificationEmail } = require('~/server/services/Auth
 const { getMCPManager } = require('~/config');
 const { maybeUninstallOAuthMCP } = require('~/server/services/MCP/oauthCleanup');
 const { invalidateCachedTools } = require('~/server/services/Config/getCachedTools');
+const {
+  clearMCPAuthorizationFenceRetry,
+  persistMCPAuthorizationFenceRetry,
+} = require('~/server/services/MCPAuthorizationFenceRetry');
 const { processDeleteRequest } = require('~/server/services/Files/process');
 const subagentThreadTaskStore = require('~/server/services/Endpoints/agents/subagentThreadStore');
 const {
@@ -35,7 +46,29 @@ const {
   quiesceUserSchedules,
   restoreUserSchedulesFromDeletion,
 } = require('~/server/services/Schedules');
+const { sendEmail } = require('~/server/utils');
 const db = require('~/models');
+
+const emailChangeService = createEmailChangeService(
+  createEmailChangeDeps({
+    store: {
+      findUser: db.findUser,
+      getUserById: db.getUserById,
+      updateUser: db.updateUser,
+      findToken: db.findToken,
+      replaceTokenIfCurrent: db.replaceTokenIfCurrent,
+      deleteTokens: db.deleteTokens,
+    },
+    withTenant: (tenantId, operation) =>
+      tenantId ? tenantStorage.run({ tenantId }, operation) : runAsSystem(operation),
+    comparePassword: (user, password) =>
+      comparePassword(user, password, { compare: bcrypt.compare }),
+    sendEmail,
+    getAppConfig,
+    clientDomain: process.env.DOMAIN_CLIENT ?? 'http://localhost:3080',
+    appName: process.env.APP_TITLE || 'LibreChat',
+  }),
+);
 
 const PUBLIC_USER_RESPONSE_FIELDS = [
   '_id',
@@ -252,6 +285,18 @@ const updateUserPluginsController = async (req, res) => {
     let message;
     /** @type {IPluginAuth | Error} */
     let authService;
+    const mcpCredentialMutationResults = [];
+    let mcpTeardown = false;
+    const mcpScope = pluginKey.startsWith(Constants.mcp_prefix)
+      ? {
+          userId: user.id,
+          serverName: pluginKey.replace(Constants.mcp_prefix, ''),
+        }
+      : null;
+    /** Write durable fence intent before the first credential write. A crash or retry-marker
+     * outage therefore cannot commit credentials that other replicas continue to authorize. */
+    const publicationRetryVersion =
+      mcpScope == null ? undefined : await persistMCPAuthorizationFenceRetry(mcpScope);
 
     if (pluginKey === Tools.web_search) {
       /** @type  {TCustomConfig['webSearch']} */
@@ -275,6 +320,9 @@ const updateUserPluginsController = async (req, res) => {
             break;
           }
         }
+        if (isMCPTool) {
+          mcpCredentialMutationResults.push(authService);
+        }
       }
     } else if (action === 'uninstall') {
       // const isMCPTool was defined earlier
@@ -289,34 +337,8 @@ const updateUserPluginsController = async (req, res) => {
           );
           ({ status, message } = normalizeHttpError(authService));
         }
-        const serverName = pluginKey.replace(Constants.mcp_prefix, '');
-        try {
-          await invalidateCachedTools({ userId: user.id, serverName });
-        } catch (error) {
-          logger.error(
-            `[updateUserPluginsController] Error fencing MCP connection before OAuth teardown for user ${user.id}:`,
-            error,
-          );
-        }
-        try {
-          await getMCPManager()?.disconnectUserConnection(user.id, serverName);
-        } catch (error) {
-          logger.error(
-            `[updateUserPluginsController] Error disconnecting MCP connection before OAuth teardown for user ${user.id}:`,
-            error,
-          );
-        }
-        try {
-          // if the MCP server uses OAuth, perform a full cleanup and token revocation
-          await maybeUninstallOAuthMCP(user.id, pluginKey, appConfig);
-        } catch (error) {
-          logger.error(
-            `[updateUserPluginsController] Error uninstalling OAuth MCP for ${pluginKey}:`,
-            error,
-          );
-          status = 503;
-          message = 'OAuth credential cleanup is temporarily unavailable';
-        }
+        mcpCredentialMutationResults.push(authService);
+        mcpTeardown = true;
       } else {
         // This handles:
         // 1. Web_search uninstall (entries include every configured field).
@@ -328,48 +350,66 @@ const updateUserPluginsController = async (req, res) => {
             logger.error('[authService] Error deleting specific auth key:', authService);
             ({ status, message } = normalizeHttpError(authService));
           }
+          if (isMCPTool) {
+            mcpCredentialMutationResults.push(authService);
+          }
         }
       }
     }
 
-    if (status === 200) {
-      // If auth was updated successfully, disconnect MCP sessions as they might use these credentials
-      if (pluginKey.startsWith(Constants.mcp_prefix)) {
-        try {
-          const mcpManager = getMCPManager();
-          // Extract server name from pluginKey (format: "mcp_<serverName>")
-          const serverName = pluginKey.replace(Constants.mcp_prefix, '');
-          if (mcpManager) {
-            logger.info(
-              `[updateUserPluginsController] Attempting disconnect of MCP server "${serverName}" for user ${user.id} after plugin auth update.`,
-            );
-          }
-          let invalidationError;
-          try {
-            await invalidateCachedTools({ userId: user.id, serverName });
-          } catch (error) {
-            invalidationError = error;
-          }
-          try {
-            await mcpManager?.disconnectUserConnection(user.id, serverName);
-          } catch (error) {
-            logger.error(
-              `[updateUserPluginsController] Error disconnecting MCP connection for user ${user.id} after plugin auth update:`,
-              error,
-            );
-          }
-          if (invalidationError) {
-            throw invalidationError;
-          }
-        } catch (disconnectError) {
-          logger.error(
-            `[updateUserPluginsController] Error fencing MCP connection for user ${user.id} after plugin auth update:`,
-            disconnectError,
-          );
-          // A credential mutation is not safely published until the shared generation fence moves.
-          throw disconnectError;
-        }
+    // Every committed MCP credential write advances the fence, including a partial batch whose
+    // later field failed. Otherwise another worker can retain a stale authorization decision.
+    if (mcpScope != null) {
+      try {
+        const mcpManager = getMCPManager();
+        await finalizeMCPAuthorizationMutation(
+          {
+            scope: mcpScope,
+            mutationResults: mcpCredentialMutationResults,
+            publicationRetryVersion,
+            teardown: mcpTeardown,
+          },
+          {
+            invalidateRecoveryGeneration: invalidateCachedTools,
+            persistPublicationRetry: persistMCPAuthorizationFenceRetry,
+            clearPublicationRetry: clearMCPAuthorizationFenceRetry,
+            clearLocalRecovery: (changedUserId, changedServerName) =>
+              mcpManager?.clearCatalogRecoveryState?.(changedUserId, changedServerName),
+            disconnectUserConnection: (changedUserId, changedServerName) =>
+              mcpManager?.disconnectUserConnection(changedUserId, changedServerName),
+            retryDelaysMs: appConfig?.mcpSettings?.catalogRecovery?.authorizationFenceRetryMs,
+            attemptTimeoutMs: appConfig?.mcpSettings?.catalogRecovery?.authorizationFenceTimeoutMs,
+            onDisconnectError: (error) =>
+              logger.error(
+                `[updateUserPluginsController] Error disconnecting MCP connection for user ${user.id} after plugin auth update:`,
+                error,
+              ),
+            ...(mcpTeardown && {
+              afterDisconnect: async () => {
+                try {
+                  await maybeUninstallOAuthMCP(user.id, pluginKey, appConfig);
+                } catch (error) {
+                  logger.error(
+                    `[updateUserPluginsController] Error uninstalling OAuth MCP for ${pluginKey}:`,
+                    error,
+                  );
+                  status = 503;
+                  message = 'OAuth credential cleanup is temporarily unavailable';
+                }
+              },
+            }),
+          },
+        );
+      } catch (disconnectError) {
+        logger.error(
+          `[updateUserPluginsController] Error fencing MCP connection for user ${user.id} after plugin auth update:`,
+          disconnectError,
+        );
+        // A credential mutation is not safely published until the shared generation fence moves.
+        throw disconnectError;
       }
+    }
+    if (status === 200) {
       return res.status(status).send();
     }
 
@@ -491,6 +531,7 @@ const deleteUserController = async (req, res) => {
 
     await db.deleteMessages({ user: user.id });
     await db.deleteAllUserSessions({ userId: user.id });
+    await db.deletePasskeysByUser(user.id);
     await db.deleteTransactions({ user: user.id });
     await db.deleteUserKey({ userId: user.id, all: true });
     await db.deleteBalances({ user: user._id });
@@ -618,12 +659,46 @@ const resendVerificationController = async (req, res) => {
   }
 };
 
+const requestEmailChangeController = async (req, res) => {
+  try {
+    const userId = req.user?._id?.toString?.() ?? req.user?.id?.toString?.();
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    const result = await emailChangeService.requestEmailChange({
+      body: req.body,
+      userId,
+      tenantId: req.user?.tenantId,
+      allowedDomains: req.config?.registration?.allowedDomains,
+      settings: resolveEmailChangeSettings(req.config?.emailChange),
+      emailEnabled: checkEmailConfig(),
+      ip: req.ip,
+    });
+    return res.status(result.status).json({ message: result.message, code: result.code });
+  } catch (error) {
+    logger.error('[requestEmailChangeController]', error);
+    return res.status(500).json({ message: 'Something went wrong.' });
+  }
+};
+
+const confirmEmailChangeController = async (req, res) => {
+  try {
+    const result = await emailChangeService.confirmEmailChange({ body: req.body, ip: req.ip });
+    return res.status(result.status).json({ message: result.message, code: result.code });
+  } catch (error) {
+    logger.error('[confirmEmailChangeController]', error);
+    return res.status(500).json({ message: 'Something went wrong.' });
+  }
+};
+
 module.exports = {
   getUserController,
   getTermsStatusController,
   acceptTermsController,
   deleteUserController,
   verifyEmailController,
+  requestEmailChangeController,
+  confirmEmailChangeController,
   updateUserPluginsController,
   resendVerificationController,
   deleteUserMcpServers,

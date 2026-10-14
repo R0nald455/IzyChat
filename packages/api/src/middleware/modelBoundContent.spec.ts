@@ -1133,6 +1133,57 @@ describe('assertModelBoundContent', () => {
     ).not.toThrow();
   });
 
+  it('inspects long stored history per message and still filters hydrated file content', () => {
+    const onTraversalFailure = jest.fn();
+    const storedMessages = Array.from({ length: 58 }, (_, index) => ({
+      isCreatedByUser: true,
+      role: 'user',
+      text: `Historical step ${index}`,
+      files: index === 0 ? [{ file_id: 'file-owned' }] : [],
+      content: Array.from({ length: 80 }, () => ({ type: 'text', text: 'safe preview material' })),
+    }));
+    const input = {
+      filters: {
+        files: {
+          pii: {
+            fields: ['extracted_text'],
+            starterPatterns: [],
+            customPatterns: [{ id: 'private', label: 'private value', regex: 'PRIVATE-FILE' }],
+            uninspectable: 'block',
+          },
+        },
+      } as FiltersConfig,
+      storedMessages,
+      onTraversalFailure,
+      resolvedFiles: [{ file_id: 'file-owned', text: 'safe canonical content' }],
+    };
+
+    expect(() => assertModelBoundContent(input)).not.toThrow();
+    expect(() =>
+      assertModelBoundContent({
+        ...input,
+        resolvedFiles: [{ file_id: 'file-owned', text: 'PRIVATE-FILE' }],
+      }),
+    ).toThrow('Submitted content contains a private value');
+    expect(() =>
+      assertModelBoundContent({
+        ...input,
+        storedMessages: [
+          { ...storedMessages[0], content: storedMessages.flatMap((m) => m.content) },
+        ],
+      }),
+    ).toThrow('Submitted content could not be completely inspected before processing.');
+    expect(onTraversalFailure).toHaveBeenCalledTimes(1);
+    expect(onTraversalFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'omit_resolved_file_locators',
+        reason: 'array_length',
+        messageCount: 1,
+        resolvedFileCount: 1,
+      }),
+    );
+  });
+
   it('inspects owner-resolved file content before authorizing its stored locator', () => {
     expect(() =>
       assertModelBoundContent({
@@ -5585,7 +5636,7 @@ describe('assertModelBoundProviderContent', () => {
     ).toThrow('Submitted content contains a private value');
   });
 
-  it('shares aggregate nested extraction work across callback batches', () => {
+  it('inspects individually bounded nested messages across callback batches', () => {
     const callbackFilters: FiltersConfig = {
       messages: {
         pii: {
@@ -5631,7 +5682,7 @@ describe('assertModelBoundProviderContent', () => {
 
     expect(() =>
       callback.handleChatModelStart(undefined, [createBatch(0), createBatch(1), createBatch(2)]),
-    ).toThrow('Submitted content could not be completely inspected before processing.');
+    ).not.toThrow();
   });
 
   it('keeps the model callback usable after caller-owned state is released', () => {
@@ -6145,4 +6196,41 @@ describe('assertModelBoundProviderContent', () => {
     callback.handleChainError(new Error('Blocked fallback'), runs.agentNodeRunId);
     expect(onAllowed).not.toHaveBeenCalled();
   });
+});
+
+it('admits only after every native batch passes and awaits the protected commit', async () => {
+  const onContentAllowed = jest.fn(async () => {});
+  const callback = createModelBoundChatModelCallback(
+    {
+      filters: {
+        messages: {
+          pii: {
+            fields: ['text', 'content_part'],
+            starterPatterns: [],
+            customPatterns: [{ id: 'secret', label: 'Secret', regex: 'BLOCK-ME' }],
+          },
+        },
+      },
+    },
+    { onContentAllowed },
+  );
+  expect(() =>
+    callback.handleChatModelStart(undefined, [
+      [{ role: 'user', content: 'safe' }],
+      [{ role: 'user', content: 'BLOCK-ME' }],
+    ]),
+  ).toThrow();
+  expect(onContentAllowed).not.toHaveBeenCalled();
+  let finish!: () => void;
+  onContentAllowed.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = callback.handleChatModelStart(undefined, [[{ role: 'user', content: 'safe' }]]);
+  expect(pending).toBeInstanceOf(Promise);
+  finish();
+  await pending;
+  expect(onContentAllowed).toHaveBeenCalledTimes(1);
 });

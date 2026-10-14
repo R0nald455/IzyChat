@@ -4,6 +4,7 @@ const { getCodeBaseURL } = require('@librechat/agents');
 const { EModelEndpoint, getCodeEnvRefs } = require('librechat-data-provider');
 const {
   logAxiosError,
+  wrapCodeApiUploadError,
   appendCodeEnvFile,
   createAxiosInstance,
   codeServerHttpAgent,
@@ -70,6 +71,14 @@ async function getCodeOutputDownloadStream(fileIdentifier, identity, req, route 
     );
   }
 }
+
+/**
+ * A deployment that no longer serves a ref's profile rejects every retry the same
+ * way, so failing the delete would leave a record the user can never remove and an
+ * agent that aborts every code turn on it.
+ */
+const isProfileMismatch = (error) =>
+  error.response?.status === 409 && error.response?.data?.error === 'execution_profile_mismatch';
 
 /**
  * Deletes a file from the Code Environment server.
@@ -147,7 +156,8 @@ async function deleteCodeEnvFile(req, file) {
         timeout: 15000,
       });
     } catch (error) {
-      if (error.response?.status !== 404) {
+      const profileMismatch = isProfileMismatch(error);
+      if (error.response?.status !== 404 && !profileMismatch) {
         throw error;
       }
       /* Already gone. Logged rather than swallowed: a 404 from a
@@ -155,7 +165,9 @@ async function deleteCodeEnvFile(req, file) {
        * object, and this branch drops the file's record either way. */
       logAxiosError({
         error,
-        message: `Code environment object already absent: ${error.message}`,
+        message: profileMismatch
+          ? `Code environment no longer serves the ${executionProfile} profile; dropping the unreachable object: ${error.message}`
+          : `Code environment object already absent: ${error.message}`,
       });
     }
   }
@@ -183,7 +195,8 @@ async function deleteCodeEnvFile(req, file) {
  * @param {string} [params.codeApiBaseUrl] - Trusted per-agent Code API endpoint.
  * @param {'default'|'stateful'} [params.executionProfile] - Trusted execution profile.
  * @param {string} [params.bridgeWorkerId] - Trusted worker selected for this execution.
- * @returns {Promise<{ storage_session_id: string; file_id: string }>}
+ * @param {AbortSignal} [params.signal] - Effective cancellation signal.
+ * @returns {Promise<{ storage_session_id: string; file_id: string; filename: string }>}
  *   The codeapi storage location of the uploaded file.
  * @throws {Error} If there's an error during the upload process.
  */
@@ -197,6 +210,7 @@ async function uploadCodeEnvFile({
   codeApiBaseUrl,
   executionProfile,
   bridgeWorkerId,
+  signal,
 }) {
   try {
     const form = new FormData();
@@ -220,6 +234,7 @@ async function uploadCodeEnvFile({
       timeout: 120000,
       maxContentLength: MAX_FILE_SIZE,
       maxBodyLength: MAX_FILE_SIZE,
+      ...(signal ? { signal } : {}),
     };
 
     const response = await axios.post(`${baseURL}/upload`, form, options);
@@ -233,14 +248,10 @@ async function uploadCodeEnvFile({
     return {
       storage_session_id: result.storage_session_id,
       file_id: result.files[0].fileId,
+      filename: result.files[0].filename,
     };
   } catch (error) {
-    throw new Error(
-      logAxiosError({
-        message: `Error uploading code environment file: ${error.message}`,
-        error,
-      }),
-    );
+    throw wrapCodeApiUploadError(error, `Error uploading code environment file: ${error.message}`);
   }
 }
 
@@ -279,6 +290,7 @@ async function batchUploadCodeEnvFiles({
   codeApiBaseUrl,
   executionProfile,
   bridgeWorkerId,
+  signal,
 }) {
   const form = new FormData();
   appendCodeEnvFileIdentity(form, { kind, id, version });
@@ -306,6 +318,7 @@ async function batchUploadCodeEnvFiles({
     timeout: 120000,
     maxContentLength: MAX_FILE_SIZE,
     maxBodyLength: MAX_FILE_SIZE,
+    signal,
   };
 
   const response = await axios.post(`${baseURL}/upload/batch`, form, options);

@@ -6,15 +6,23 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  prepareToolCallPreviews: jest.fn(() => (messages) => Promise.resolve(messages)),
+  createToolCallPartHandler: jest.fn(() => (_req, res) => res.status(404).end()),
+  rejectToolCallPreviewWrites: (_req, _res, next) => next(),
+  withMessageToolCallPreviews: (_req, message) => message,
   unescapeLaTeX: jest.fn((value) => value),
   countTokens: jest.fn().mockResolvedValue(10),
+  createPrivateTextView: jest.fn(() => (_req, _res, next) => next()),
   createContentFilter: jest.fn(() => (req, res, next) => next()),
   sendFeedbackScore: jest.fn().mockResolvedValue(undefined),
   traceIdForMessage: jest.fn((messageId) => `trace-${messageId}`),
   CHILD_THREAD_READ_ONLY_ERROR: 'Child thread is view-only.',
   isSubagentThreadWriteBlocked: jest.fn().mockResolvedValue(false),
   requireFeedbackEnabled: jest.fn((req, res, next) => next()),
+  applyForcedRetention: jest.fn(),
 }));
+
+jest.mock('~/server/services/Config', () => ({ getAppConfig: jest.fn() }));
 
 jest.mock('~/server/services/Endpoints/agents/subagentThreadStore', () => ({}));
 
@@ -131,6 +139,32 @@ describe('PUT /:conversationId/:messageId/feedback', () => {
           tag: 'inaccurate',
           text: 'The answer is incorrect',
         },
+      }),
+    );
+  });
+
+  it('scores the trace of the run a failed turn stands for', async () => {
+    updateMessage.mockImplementationOnce((userId, { messageId, feedback }) =>
+      Promise.resolve({
+        messageId,
+        conversationId: 'conversation-1',
+        endpoint: 'agents',
+        langfuseSampled: true,
+        langfuseDestinationIds: ['destination-1'],
+        langfuseRunId: 'run-1',
+        feedback,
+      }),
+    );
+
+    const response = await request(app)
+      .put('/api/messages/conversation-1/user-1_/feedback')
+      .send({ feedback: { rating: 'thumbsDown', tag: 'other' } });
+
+    expect(response.status).toBe(200);
+    expect(sendFeedbackScore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-run-1',
+        metadata: expect.objectContaining({ messageId: 'user-1_' }),
       }),
     );
   });

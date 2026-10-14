@@ -51,11 +51,23 @@ jest.mock('@librechat/api', () => {
   };
 
   return {
+    prepareToolCallPreviews: jest.fn(() => (messages) => Promise.resolve(messages)),
+    createToolCallPartHandler: jest.fn(() => (_req, res) => res.status(404).end()),
+    rejectToolCallPreviewWrites: (_req, _res, next) => next(),
+    withMessageToolCallPreviews: (_req, message) => message,
+    /** The real helper, without loading the rest of the package this suite mocks around. */
+    withoutTraceRefs: jest.requireActual('../../../../packages/api/src/langfuse/trace.ts')
+      .withoutTraceRefs,
+    createPrivateTextView: jest.fn(() => (_req, _res, next) => next()),
+    stripPrivateMessageFields: jest.requireActual(
+      '../../../../packages/api/src/protection/private/view',
+    ).stripPrivateMessageFields,
     createContentFilter: jest.fn(() => (req, res, next) => next()),
     inspectContent,
     extractChatContent,
     extractFeedbackContent: jest.fn(() => []),
     extractStoredMessageContent,
+    applyForcedRetention: jest.fn(),
     contentFilterBlockResponse,
     getContentTraversalFragments,
     isContentTraversalLimitError,
@@ -118,6 +130,8 @@ jest.mock('@librechat/api', () => {
   };
 });
 
+jest.mock('~/server/services/Config', () => ({ getAppConfig: jest.fn() }));
+
 jest.mock('~/server/services/Endpoints/agents/subagentThreadStore', () => ({}));
 
 jest.mock('@librechat/data-schemas', () => ({
@@ -135,6 +149,7 @@ jest.mock('librechat-data-provider', () => ({
 }));
 
 jest.mock('~/models', () => ({
+  getConvo: jest.fn(),
   saveConvo: jest.fn(),
   getMessage: jest.fn(),
   saveMessage: jest.fn(),
@@ -318,6 +333,61 @@ describe('message route conversation ownership filters', () => {
     ]);
   });
 
+  it('inherits the source message retention when branching', async () => {
+    const expiredAt = new Date('2030-01-01T00:00:00.000Z');
+    getMessage.mockResolvedValue({
+      messageId: 'source-message',
+      conversationId: 'convo-1',
+      parentMessageId: 'parent-1',
+      isCreatedByUser: false,
+      isTemporary: true,
+      expiredAt,
+      content: [{ type: 'text', text: 'Assistant content', agentId: 'agent-1' }],
+    });
+    saveMessage.mockImplementation(async (_ctx, message) => message);
+
+    const response = await request(app).post('/api/messages/branch').send({
+      messageId: 'source-message',
+      agentId: 'agent-1',
+    });
+
+    expect(response.status).toBe(201);
+    expect(saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ isTemporary: true, expiredAt }),
+      expect.any(Object),
+      { context: 'POST /api/messages/branch' },
+    );
+  });
+
+  it('uses the guard-loaded retention for both writes when a message spoofs the chat type', async () => {
+    const expiredAt = new Date('2030-01-01T00:00:00.000Z');
+    const db = require('~/models');
+    db.getConvo.mockResolvedValue({ conversationId: 'convo-1', isTemporary: true, expiredAt });
+    require('@librechat/api').isSubagentThreadWriteBlocked.mockImplementationOnce(
+      async ({ getConvo }, { userId, conversationId }) => {
+        await getConvo(userId, conversationId);
+        return false;
+      },
+    );
+    saveMessage.mockImplementation(async (_ctx, message) => message);
+
+    const response = await request(app).post('/api/messages/convo-1').send({
+      messageId: 'message-1',
+      text: 'hello',
+      isTemporary: false,
+    });
+
+    expect(response.status).toBe(201);
+    for (const save of [saveMessage, saveConvo]) {
+      expect(save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ isTemporary: true, expiredAt }),
+        expect.any(Object),
+        expect.any(Object),
+      );
+    }
+    expect(db.getConvo).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     {
       name: 'carries server-private context meta onto the branch',
@@ -472,6 +542,9 @@ describe('message route conversation ownership filters', () => {
           encoding: 'claude',
           fading: { v: 1, budgetTokens: 1, masked: true },
         },
+        langfuseSampled: true,
+        langfuseDestinationIds: ['forged-destination'],
+        langfuseRunId: 'someone-elses-run',
       });
 
     expect(response.status).toBe(201);
@@ -490,6 +563,9 @@ describe('message route conversation ownership filters', () => {
     expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('userSubmittedPaths');
     expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('userSubmittedMessageFieldPaths');
     expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('contextMeta');
+    expect(saveMessage.mock.calls[0][1].langfuseSampled).toBe(false);
+    expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('langfuseDestinationIds');
+    expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('langfuseRunId');
     expect(response.body.messageId).toBe(savedMessage.messageId);
     expect(response.body).not.toHaveProperty('contextMeta');
     expect(saveConvo).toHaveBeenCalledWith(
@@ -575,6 +651,8 @@ describe('message route conversation ownership filters', () => {
           messageId: 'hit-1',
           conversationId: 'convo-1',
           text: 'needle in a haystack',
+          privateText: 'v1:encrypted-original',
+          privacyRevision: 'public-revision',
           contextMeta: {
             calibrationRatio: 1.2,
             encoding: 'claude',
@@ -596,6 +674,8 @@ describe('message route conversation ownership filters', () => {
     expect(response.body.messages).toHaveLength(1);
     expect(response.body.messages[0]).toMatchObject({ messageId: 'hit-1', title: 'Found' });
     expect(response.body.messages[0]).not.toHaveProperty('contextMeta');
+    expect(response.body.messages[0]).not.toHaveProperty('privateText');
+    expect(response.body.messages[0].privacyRevision).toBe('public-revision');
   });
 
   it('returns indistinguishable not-found responses for child and missing query reads', async () => {

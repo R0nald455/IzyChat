@@ -34,6 +34,7 @@ const checkSchedulesCreate = generateCheckAccess({
 });
 
 const handlers = createSchedulesHandlers({
+  preflightMCP: require('~/server/services/Schedules/mcp'),
   methods,
   getLimits,
   // Full fire-equivalent access check (not mere existence): the body-based agent
@@ -84,6 +85,12 @@ const handlers = createSchedulesHandlers({
   // create race, so every scheduling WRITE consults the user-level flag instead.
   isUserDeleting,
 });
+
+const consentHost = require('~/server/services/Schedules/consent').consent;
+
+router.get('/:id/mcp-consent', consentHost.handlers.get);
+router.post('/:id/mcp-consent', checkSchedulesCreate, consentHost.handlers.confirm);
+router.delete('/:id/mcp-consent', consentHost.handlers.revoke);
 
 router.get('/', checkSchedulesAccess, handlers.listSchedules);
 router.get('/:id', checkSchedulesAccess, handlers.getSchedule);

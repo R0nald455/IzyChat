@@ -1,8 +1,8 @@
 import React, { forwardRef } from 'react';
 import { useWatch } from 'react-hook-form';
-import { SendIcon, TooltipAnchor } from '@librechat/client';
+import { SendIcon, IconButton, TooltipAnchor } from '@librechat/client';
 import type { Control } from 'react-hook-form';
-import { cn, isSubmittableMessage } from '~/utils';
+import { isSubmittableMessage } from '~/utils';
 import { useLocalize } from '~/hooks';
 
 type SendButtonProps = {
@@ -19,27 +19,26 @@ const SubmitButton = React.memo(
       <TooltipAnchor
         description={localize('com_nav_send_message')}
         render={
-          <button
+          <IconButton
             ref={ref}
-            aria-label={localize('com_nav_send_message')}
-            id="send-button"
+            label={localize('com_nav_send_message')}
+            variant="submit"
+            size="theme"
+            shape="composer"
             disabled={props.disabled}
-            className={cn(
-              'size-theme-control rounded-theme-control-round bg-accent-primary p-theme-compact text-white outline-offset-4 transition-all duration-theme-normal disabled:cursor-not-allowed disabled:text-text-secondary disabled:opacity-10',
-            )}
+            className="bg-accent-primary text-white hover:bg-accent-primary"
             data-testid="send-button"
             type="submit"
           >
             <span className="" data-state="closed">
-              <SendIcon size={24} />
+              <SendIcon className="size-6" />
             </span>
-          </button>
+          </IconButton>
         }
       />
     );
   }),
 );
-
 const SendButton = React.memo(
   forwardRef((props: SendButtonProps, ref: React.ForwardedRef<HTMLButtonElement>) => {
     const data = useWatch({ control: props.control });

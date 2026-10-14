@@ -37,6 +37,7 @@ import type {
   ResumeContentInspectionInput,
   ResumeSnapshotAgent,
 } from './inspection';
+import type { LocatorTraversalReporter } from '../../protection/diagnostics';
 import type { TextContentFragment } from '~/protection/types';
 import type { CheckAccessParams } from '~/middleware/access';
 import {
@@ -53,10 +54,12 @@ import {
 import { getResumeAgentSnapshot, getResumeContentInspection } from './inspection';
 import { extractStoredMessageContent } from '~/protection/adapters/submissions';
 import { agentHasInlineMemoryTools, getMemoryAgentId } from '../memory';
+import { isValidInstructionsPromptLink } from '../instructions/linked';
 import { LIBRECHAT_CHECKPOINT_NAMESPACE_KEY } from '../checkpointer';
 import { AttachmentObjectNotFoundError } from '~/files/encode/utils';
 import { ASK_USER_QUESTION_TOOL_NAME } from './askUserQuestionTool';
 import { ContentFilterError } from '~/middleware/contentFilter';
+import { applyCheckpointDelivery } from '../files/delivery';
 import { hasActiveFilePolicy } from '~/protection/files';
 import { parseSkillMarkdown } from '../../skills/parse';
 import { inspectContent } from '~/protection/runtime';
@@ -167,6 +170,7 @@ const ENCRYPTED_ACTION_METADATA_FIELDS = [
 ] as const;
 
 export interface ResumeContentProtectionDependencies {
+  readonly onTraversalFailure?: LocatorTraversalReporter;
   getAgentCheckpointer: (
     config: TCheckpointerConfig | undefined,
   ) => Promise<ResumeCheckpointer | undefined>;
@@ -219,7 +223,7 @@ export interface AssertResumeRuntimeContentAllowedInput
 
 export type ResumeRuntimeContentProtectionDependencies = Pick<
   ResumeContentProtectionDependencies,
-  'getAgentCheckpointer' | 'getMessages' | 'getFiles'
+  'getAgentCheckpointer' | 'getMessages' | 'getFiles' | 'onTraversalFailure'
 >;
 
 export interface ResumeRuntimeContentProjection {
@@ -543,12 +547,21 @@ function assertResumeToolContentAllowed(
   }
 }
 
+/**
+ * Projects a resume snapshot agent's definition fields for the content-policy
+ * scan. Excludes the stored inline `instructions` when the agent has a valid
+ * `instructionsPrompt` link — matching `initializeAgent`'s init-time content
+ * check, which excludes the same field for the same reason: a linked agent's
+ * stored inline text is dead, unused text, superseded by the resolved prompt
+ * at runtime, so it must not block a resume this scan gates.
+ */
 function projectResumeAgentDefinition(agent: ResumeSnapshotAgent): AgentContentInput {
+  const hasValidLink = isValidInstructionsPromptLink(agent.instructionsPrompt);
   return {
     name: agent.name,
     category: agent.category,
     description: agent.description,
-    instructions: agent.instructions,
+    instructions: hasValidLink ? undefined : agent.instructions,
     additional_instructions: agent.additional_instructions,
     conversation_starters: agent.conversation_starters,
     edges: agent.edges?.map((edge) => ({
@@ -800,6 +813,7 @@ async function assertResumeAgentContentAllowed({
     definitionAgents.push(memoryAgentDefinition.definition);
   }
   assertModelBoundContent({
+    onTraversalFailure: dependencies.onTraversalFailure,
     filters: appConfig?.filters,
     legacyPii: appConfig?.messageFilter?.pii,
     agents: definitionAgents,
@@ -855,6 +869,7 @@ async function assertResumeModelBoundContentAllowed(
 ): Promise<ResumeModelBoundContentProjection> {
   if (!hasResumeHistoryProtection(appConfig)) {
     assertModelBoundContent({
+      onTraversalFailure: dependencies.onTraversalFailure,
       filters: appConfig?.filters,
       legacyPii: appConfig?.messageFilter?.pii,
       agents,
@@ -883,6 +898,7 @@ async function assertResumeModelBoundContentAllowed(
   }
   const checkpointContent = getResumeCheckpointContent(checkpointMessages);
   const contentInspection = await getResumeContentInspection({
+    onTraversalFailure: dependencies.onTraversalFailure,
     appConfig,
     conversationId,
     targetMessageId,
@@ -897,6 +913,7 @@ async function assertResumeModelBoundContentAllowed(
     getFiles: dependencies.getFiles,
   });
   assertModelBoundContent({
+    onTraversalFailure: dependencies.onTraversalFailure,
     filters: appConfig?.filters,
     legacyPii: appConfig?.messageFilter?.pii,
     submittedMessages: contentInspection.submittedMessages,
@@ -1131,7 +1148,7 @@ export async function assertResumeRuntimeContentAllowed(
     );
     throw new AttachmentObjectNotFoundError(unresolvedFileId ?? 'unknown');
   }
-  return { resolvedFiles, checkpointFiles };
+  return { resolvedFiles, checkpointFiles: applyCheckpointDelivery(checkpointFiles) };
 }
 
 export function getUserFacingResumeError(

@@ -14,6 +14,7 @@ import type {
   StoredMessageContentInput,
 } from './protection/adapters/submissions';
 import type { ModelBoundContentInput } from './middleware/modelBoundContent';
+import type { LocatorTraversalReporter } from './protection/diagnostics';
 import {
   getContentTraversalFragments,
   getContentTraversalScopes,
@@ -24,7 +25,7 @@ import {
 import {
   getBlockedOpaqueFileField,
   hasActiveFilePolicy,
-  resolveCanonicalFileReferences,
+  resolveCanonicalFileReferenceUnits,
   UninspectableFileError,
 } from './protection/files';
 import { assertModelBoundContent as assertModelBoundContentAtBoundary } from './middleware/modelBoundContent';
@@ -50,10 +51,13 @@ export interface ConversationImportSnapshot {
 }
 
 export interface ConversationImportProtectionContext {
+  readonly onTraversalFailure?: LocatorTraversalReporter;
   readonly user?: CanonicalFileInspectionUser;
   readonly getFiles?: GetCanonicalFilesForInspection;
   readonly trustedLiveFiles?: readonly CanonicalFileInspectionFile[];
   readonly legacyPii?: MessageFilterPiiConfig | null;
+  /** Supplied only by native canonical-copy/share callers, never parsed from an import. */
+  readonly privateTextTokens?: ReadonlySet<string>;
   /** Injectable only at the legacy package boundary and in focused tests. */
   readonly assertModelBoundContent?: (input: ModelBoundContentInput) => void;
 }
@@ -130,7 +134,9 @@ async function inspectConversationImportContent(
   let storedMessages = snapshot.messages;
   let resolvedFiles: CanonicalFileInspectionFile[] = [];
   if (hasActiveFilePolicy(activeFilters)) {
-    const fileInspection = await resolveCanonicalFileReferences({
+    const fileInspection = await resolveCanonicalFileReferenceUnits({
+      messageCount: snapshot.messages.length,
+      onTraversalFailure: context.onTraversalFailure,
       filters: activeFilters,
       input: snapshot.messages,
       user: context.user,
@@ -145,6 +151,7 @@ async function inspectConversationImportContent(
     context.assertModelBoundContent ?? assertModelBoundContentAtBoundary;
   if (resolvedFiles.length > 0) {
     assertModelBoundContent({
+      onTraversalFailure: context.onTraversalFailure,
       filters: activeFilters,
       resolvedFiles,
     });
@@ -153,8 +160,10 @@ async function inspectConversationImportContent(
   for (const message of storedMessages) {
     try {
       assertModelBoundContent({
+        onTraversalFailure: context.onTraversalFailure,
         filters: activeFilters,
         legacyPii,
+        privateTextTokens: context.privateTextTokens,
         storedMessages: [message],
       });
     } catch (error) {

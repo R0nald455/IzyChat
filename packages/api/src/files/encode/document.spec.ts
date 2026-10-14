@@ -909,6 +909,28 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       expect(mockedGetFileStream).not.toHaveBeenCalled();
     });
 
+    it('should send textual documents as text parts to Claude through an OpenAI-compatible gateway', async () => {
+      const req = createMockRequest(30) as ServerRequest;
+      const file = createMockDocFile(1, 'text/plain', 'notes.txt');
+      mockedGetFileStream.mockResolvedValue({
+        file,
+        content: Buffer.from('hello from test').toString('base64'),
+        metadata: file,
+      });
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: Providers.OPENAI, model: 'claude-auto-latest' },
+        mockStrategyFunctions,
+      );
+
+      expect(result.documents).toEqual([
+        { type: 'text', text: 'File: "notes.txt"\n\nhello from test' },
+      ]);
+      expect(result.files).toHaveLength(1);
+    });
+
     it('should skip XLSX for non-Claude OpenAI models: OpenAI file input is PDF-only', async () => {
       const req = createMockRequest(30) as ServerRequest;
       const file = createMockDocFile(

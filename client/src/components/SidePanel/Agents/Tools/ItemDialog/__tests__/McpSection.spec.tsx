@@ -11,6 +11,7 @@ const mockMcpServersMap = jest.fn((): Map<string, object> => new Map());
 let mockMcpToolsLoading = false;
 const mockGetServerStatusIconProps = jest.fn((): object | null => null);
 const mockInitializeServer = jest.fn();
+const mockCancelOAuth = jest.fn();
 const mockIsConnectionDeferred = jest.fn((): boolean => false);
 const mockToggleIntentAll = jest.fn();
 const mockIsToolProgrammaticOnly = jest.fn((_toolId: string): boolean => false);
@@ -26,6 +27,12 @@ const mockCapabilities = {
 const mockLocalize = jest.fn((key: string, values?: Record<number, string>) =>
   key === 'com_nav_mcp_status_connecting' ? `${values?.[0]} - Connecting` : key,
 );
+
+const mockMCPRefresh = jest.fn();
+
+jest.mock('~/hooks/MCP/useMCPRefresh', () => ({
+  useMCPRefresh: (options: { enabled: boolean; tools?: boolean }) => mockMCPRefresh(options),
+}));
 
 jest.mock('react-hook-form', () => ({
   useFormContext: () => ({ control: {}, setValue: mockSetValue, getValues: mockGetValues }),
@@ -88,6 +95,11 @@ jest.mock('~/hooks', () => ({
     toggleBackgroundAll: jest.fn(),
     toggleIntentAll: mockToggleIntentAll,
   }),
+}));
+
+jest.mock('../../../ApprovalOption', () => ({
+  __esModule: true,
+  default: () => null,
 }));
 
 jest.mock('../../../MCPToolItem', () => ({
@@ -180,6 +192,7 @@ describe('McpSection', () => {
     mockSetValue.mockClear();
     mockGetValues.mockReturnValue([]);
     mockInitializeServer.mockReset();
+    mockCancelOAuth.mockReset();
     mockIsConnectionDeferred.mockReset();
     mockIsConnectionDeferred.mockReturnValue(false);
     mockToggleIntentAll.mockClear();
@@ -301,6 +314,104 @@ describe('McpSection', () => {
     expect(await screen.findByTestId('oauth-dialog')).toHaveTextContent(
       'https://oauth.example/authorize?x=1',
     );
+  });
+
+  test.each([true, false])(
+    'offers cancellation for pending OAuth (local initialization=%s)',
+    (isInitializing) => {
+      mockGetServerStatusIconProps.mockReturnValue({
+        serverStatus: { connectionState: 'connecting', requiresOAuth: true },
+        isInitializing,
+        canCancel: true,
+        onCancel: mockCancelOAuth,
+      });
+
+      render(<McpSection item={item} />);
+
+      const cancel = screen.getByRole('button', { name: 'com_ui_cancel' });
+      expect(cancel).toBeEnabled();
+      expect(
+        screen.queryByRole('button', { name: 'com_nav_mcp_connect_server' }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(cancel);
+      expect(mockCancelOAuth).toHaveBeenCalledTimes(1);
+      expect(mockInitializeServer).not.toHaveBeenCalled();
+    },
+  );
+
+  test('keeps Connect disabled until initialization becomes cancellable', () => {
+    mockGetServerStatusIconProps.mockReturnValue({
+      isInitializing: true,
+      canCancel: false,
+    });
+
+    render(<McpSection item={item} />);
+
+    expect(screen.getByRole('button', { name: 'com_nav_mcp_connect_server' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'com_ui_cancel' })).not.toBeInTheDocument();
+  });
+
+  test('cancelling closes OAuth and prevents a late connection from selecting tools', async () => {
+    mockInitializeServer.mockResolvedValue({
+      success: true,
+      oauthRequired: true,
+      oauthUrl: 'https://oauth.example/authorize',
+    });
+    const { rerender } = render(<McpSection item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'com_nav_mcp_connect_server' }));
+    expect(await screen.findByTestId('oauth-dialog')).toBeInTheDocument();
+
+    mockGetServerStatusIconProps.mockReturnValue({
+      isInitializing: true,
+      canCancel: true,
+      onCancel: mockCancelOAuth,
+    });
+    rerender(<McpSection item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_cancel' }));
+
+    expect(screen.queryByTestId('oauth-dialog')).not.toBeInTheDocument();
+    expect(mockCancelOAuth).toHaveBeenCalledTimes(1);
+    mockGetServerStatusIconProps.mockReturnValue({
+      serverStatus: { connectionState: 'connected' },
+      isInitializing: false,
+      canCancel: false,
+    });
+    rerender(<McpSection item={item} />);
+    expect(mockSetValue).not.toHaveBeenCalled();
+  });
+
+  test('allows a fresh OAuth attempt after cancellation', async () => {
+    mockInitializeServer.mockResolvedValue({
+      success: true,
+      oauthRequired: true,
+      oauthUrl: 'https://oauth.example/first',
+    });
+    const { rerender } = render(<McpSection item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'com_nav_mcp_connect_server' }));
+    expect(await screen.findByTestId('oauth-dialog')).toHaveTextContent(
+      'https://oauth.example/first',
+    );
+
+    mockGetServerStatusIconProps.mockReturnValue({
+      isInitializing: true,
+      canCancel: true,
+      onCancel: mockCancelOAuth,
+    });
+    rerender(<McpSection item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_cancel' }));
+
+    mockGetServerStatusIconProps.mockReturnValue(null);
+    mockInitializeServer.mockResolvedValue({
+      success: true,
+      oauthRequired: true,
+      oauthUrl: 'https://oauth.example/second',
+    });
+    rerender(<McpSection item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'com_nav_mcp_connect_server' }));
+    expect(await screen.findByTestId('oauth-dialog')).toHaveTextContent(
+      'https://oauth.example/second',
+    );
+    expect(mockInitializeServer).toHaveBeenCalledTimes(2);
   });
 
   test('shows empty hint when the server exposes no tools', () => {
@@ -570,8 +681,8 @@ describe('McpSection', () => {
 
     expect(screen.getByRole('button', { name: 'com_ui_mcp_unbackground_all' })).toHaveClass(
       'border-series-1',
-      'bg-surface-active',
-      'text-text-primary',
+      'text-series-1',
+      'hover:text-series-1',
     );
   });
 

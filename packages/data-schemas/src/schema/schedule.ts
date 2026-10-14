@@ -1,5 +1,7 @@
 import { Schema } from 'mongoose';
 import { SCHEDULE_CRON_MAX_LENGTH } from 'librechat-data-provider';
+import { scheduledMCPEnrollmentSchema } from 'librechat-data-provider';
+import { scheduledMCPFailureReasonSchema } from 'librechat-data-provider';
 import type { IScheduleDocument } from '~/types/schedule';
 
 /** `cadence` is a nested path rather than a subdocument, so a validator on
@@ -104,6 +106,12 @@ const scheduleSchema: Schema<IScheduleDocument> = new Schema(
       type: [String],
       default: undefined,
     },
+    mcpConsent: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+      validate: (value: import('librechat-data-provider').ScheduledMCPEnrollment) =>
+        scheduledMCPEnrollmentSchema.safeParse(value).success,
+    },
     cron: {
       type: String,
     },
@@ -115,6 +123,9 @@ const scheduleSchema: Schema<IScheduleDocument> = new Schema(
     disabledReason: {
       type: String,
       enum: [
+        'mcp_reauth_required',
+        'mcp_configuration_missing',
+        'mcp_permission_denied',
         'too_many_failures',
         'agent_deleted',
         'invalid_schedule',
@@ -223,6 +234,34 @@ const scheduleSchema: Schema<IScheduleDocument> = new Schema(
         conversationId: { type: String },
         status: { type: String, required: true },
         error: { type: String },
+        mcp: {
+          type: [
+            {
+              _id: false,
+              server: { type: String, required: true },
+              agentId: { type: String },
+              detail: { type: String, enum: ['unattended_auth_required'] },
+              reason: { type: String, enum: scheduledMCPFailureReasonSchema.options },
+              recovery: {
+                type: String,
+                enum: ['authorize', 'configure', 'restore_permission', 'retry_later'],
+              },
+              automaticReplay: { type: Boolean, enum: [false] },
+              status: {
+                type: String,
+                required: true,
+                enum: [
+                  'ready',
+                  'mcp_reauth_required',
+                  'mcp_configuration_missing',
+                  'mcp_permission_denied',
+                  'mcp_unavailable',
+                ],
+              },
+            },
+          ],
+          default: undefined,
+        },
         firedAt: { type: Date, required: true },
         scheduledFor: { type: Date },
       },

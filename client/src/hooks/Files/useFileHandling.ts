@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { v4 } from 'uuid';
 import debounce from 'lodash/debounce';
+import { useSetRecoilState } from 'recoil';
 import { useToastContext } from '@librechat/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRecoilValue, useSetRecoilState } from 'recoil';
 import {
   megabyte,
   QueryKeys,
@@ -35,10 +35,13 @@ import {
   validateFileDuplicates,
 } from '~/utils';
 import { useGetFileConfig, useUploadFileMutation } from '~/data-provider';
+import useAgentUploadTarget from '~/hooks/Agents/useAgentUploadTarget';
 import useLocalize, { TranslationKeys } from '~/hooks/useLocalize';
+import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import { useDelayedUploadToast } from './useDelayedUploadToast';
 import { useChatContext } from '~/Providers/ChatContext';
-import store, { ephemeralAgentByConvoId } from '~/store';
+import { importWithRecovery } from '~/lib/assets/lazy';
+import { ephemeralAgentByConvoId } from '~/store';
 import useClientResize from './useClientResize';
 import useUpdateFiles from './useUpdateFiles';
 
@@ -165,7 +168,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
   const setEphemeralAgent = useSetRecoilState(
     ephemeralAgentByConvoId(conversation?.conversationId ?? Constants.NEW_CONVO),
   );
-  const isTemporary = useRecoilValue(store.isTemporary);
+  const { isTemporary } = useChatSettings();
   const setError = (error: string) => setErrors((prevErrors) => [...prevErrors, error]);
 
   /** Names the files left out of a batch that is otherwise still uploading. Callers report a batch
@@ -214,6 +217,12 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     () => endpointOverride ?? conversation?.endpoint ?? 'default',
     [endpointOverride, conversation?.endpoint],
   );
+  const uploadTarget = useAgentUploadTarget(conversation);
+  /** An agent's file policy lives under its provider, which is the entry the server
+   *  validates against. An explicit override names its own endpoint and keeps it. */
+  const agentProvider = endpointOverride != null ? undefined : uploadTarget.agentProvider;
+  const agentEndpointType = endpointOverride != null ? undefined : uploadTarget.endpointType;
+  const usesResponsesApi = uploadTarget.useResponsesApi;
 
   const { data: fileConfig = null } = useGetFileConfig({
     select: (data) => mergeFileConfig(data),
@@ -245,7 +254,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     setErrors([]);
   }, [errors, showToast, localize]);
 
-  const debouncedDisplayToast = debounce(displayToast, 250);
+  const debouncedDisplayToast = useMemo(() => debounce(displayToast, 250), [displayToast]);
 
   useEffect(() => {
     if (errors.length > 0) {
@@ -304,6 +313,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
               filename: data.filename,
               source: data.source,
               embedded: data.embedded,
+              llmDeliveryPath: data.llmDeliveryPath,
             },
             assistant_id ? true : false,
           );
@@ -360,6 +370,13 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     const formData = new FormData();
     formData.append('endpoint', endpoint);
     formData.append('endpointType', endpointType ?? '');
+    /* Azure carries native documents only through the Responses API, so routing needs to
+     * know which one this conversation uses. A saved agent holds the setting on its own
+     * record when the conversation does not carry one, which is the same fallback the
+     * attach menu and the drop handler resolve. */
+    if (usesResponsesApi === true) {
+      formData.append('useResponsesApi', 'true');
+    }
     formData.append('file', extendedFile.file as File, encodeURIComponent(filename));
     formData.append('file_id', extendedFile.file_id);
     if (
@@ -489,9 +506,9 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       : filesRef.current;
     const currentFileConfig = fileConfigRef.current;
     const endpointFileConfig = getEndpointFileConfig({
-      endpoint,
+      endpoint: agentProvider ?? endpoint,
       fileConfig: currentFileConfig,
-      endpointType,
+      endpointType: agentProvider != null ? agentEndpointType : endpointType,
     });
     /** The source remains visible until success, so exclude only its matching entry from this
      * upload's validation tallies. All other callers validate against the complete file map. */
@@ -601,14 +618,15 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         }
 
         const heicProcessedFile = isHEIC
-          ? await import('~/utils/heicConverter').then(({ processFileForUpload }) =>
-              processFileForUpload(originalFile, 0.9, (conversionProgress) => {
-                const adjustedProgress = 0.1 + conversionProgress * 0.4;
-                replaceFile({
-                  ...initialExtendedFile,
-                  progress: adjustedProgress,
-                });
-              }),
+          ? await importWithRecovery(() => import('~/utils/heicConverter')).then(
+              ({ processFileForUpload }) =>
+                processFileForUpload(originalFile, 0.9, (conversionProgress) => {
+                  const adjustedProgress = 0.1 + conversionProgress * 0.4;
+                  replaceFile({
+                    ...initialExtendedFile,
+                    progress: adjustedProgress,
+                  });
+                }),
             )
           : originalFile;
 

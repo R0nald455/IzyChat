@@ -1,3 +1,5 @@
+const { maxWorkers } = require('../config/jest.workers.cjs');
+
 const esModules = [
   'openid-client',
   'oauth4webapi',
@@ -6,6 +8,7 @@ const esModules = [
   '@langchain/langgraph-checkpoint',
   '@langchain/langgraph-sdk',
   '@mistralai/mistralai',
+  '@modelcontextprotocol/ext-apps',
   'uuid',
   'sanitize-html',
   'htmlparser2',
@@ -21,7 +24,7 @@ module.exports = {
   clearMocks: true,
   roots: ['<rootDir>'],
   coverageDirectory: 'coverage',
-  maxWorkers: '50%',
+  maxWorkers,
   testTimeout: 30000, // 30 seconds timeout for all tests
   setupFiles: ['./test/jestSetup.js', './test/__mocks__/logger.js'],
   moduleNameMapper: {

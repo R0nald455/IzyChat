@@ -5,9 +5,11 @@ const {
   logAxiosError,
   getSafeErrorMetadata,
   getApprovalTtlMs,
+  handleFileListRequest,
   refreshS3FileUrls,
   handleFilesUsageRequest,
   buildDeleteFilesResponse,
+  deleteAgentResourceFiles,
   shouldUseUploadSse,
   startUploadSseStream,
   sendUploadPolicyError,
@@ -23,9 +25,7 @@ const {
   resolveDownloadPath,
 } = require('@librechat/api');
 const {
-  Time,
   isUUID,
-  CacheKeys,
   FileSources,
   ResourceType,
   EModelEndpoint,
@@ -42,6 +42,11 @@ const {
   processDeleteRequest,
   processAgentFileUpload,
 } = require('~/server/services/Files/process');
+const {
+  resolveEffectiveToolResource,
+  resolveUploadEndpoint,
+  resolveUploadAgent,
+} = require('~/server/services/Files/routing');
 const { fileAccess } = require('~/server/middleware/accessResources/fileAccess');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
@@ -49,8 +54,8 @@ const { hasCapability } = require('~/server/middleware/roles/capabilities');
 const { getRoleByName } = require('~/models');
 const { checkPermission } = require('~/server/services/PermissionService');
 const { cleanFileName, getContentDisposition } = require('~/server/utils/files');
-const { getLogStores } = require('~/cache');
 const { Readable } = require('stream');
+const { getLogStores } = require('~/cache');
 const db = require('~/models');
 
 const router = express.Router();
@@ -65,23 +70,23 @@ const AGENT_TOOL_RESOURCE_KEYS = new Set([
 const isAgentToolResourceKey = (toolResource) =>
   typeof toolResource === 'string' && AGENT_TOOL_RESOURCE_KEYS.has(toolResource);
 
+/** Register the list endpoint as a thin adapter around the shared file-list policy. */
 router.get('/', async (req, res) => {
   try {
-    const appConfig = req.config;
-    const files = await db.getFiles({ user: req.user.id });
-    if (appConfig.fileStrategy === FileSources.s3) {
-      try {
-        const cache = getLogStores(CacheKeys.S3_EXPIRY_INTERVAL);
-        const alreadyChecked = await cache.get(req.user.id);
-        if (!alreadyChecked) {
-          await refreshS3FileUrls(files, db.batchUpdateFiles);
-          await cache.set(req.user.id, true, Time.THIRTY_MINUTES);
-        }
-      } catch (error) {
-        logger.warn('[/files] Error refreshing S3 file URLs:', error);
-      }
-    }
-    res.status(200).send(files);
+    const responseFiles = await handleFileListRequest({
+      userId: req.user.id,
+      rawLimit: req.query.limit,
+      fileStrategy: req.config?.fileStrategy,
+      maxLimit: req.config?.fileListLimit,
+      dependencies: {
+        getFiles: db.getFiles,
+        batchUpdateFiles: db.batchUpdateFiles,
+        refreshS3FileUrls,
+        getLogStores,
+        logger,
+      },
+    });
+    res.status(200).send(responseFiles);
   } catch (error) {
     logger.error('[/files] Error getting files:', error);
     res.status(400).json({ message: 'Error in request', error: error.message });
@@ -240,20 +245,36 @@ router.delete('/', async (req, res) => {
         });
       }
 
-      const toolResourceFiles = agent.tool_resources?.[req.body.tool_resource]?.file_ids ?? [];
-      const agentFiles = files
-        .filter((f) => toolResourceFiles.includes(f.file_id))
-        .map((file) => ({ tool_resource: req.body.tool_resource, file_id: file.file_id }));
-      if (agentFiles.length === 0) {
+      const agentDeletion = await deleteAgentResourceFiles(
+        {
+          agentId: req.body.agent_id,
+          agentObjectId: agent._id.toString(),
+          toolResource: req.body.tool_resource,
+          requestedFileIds: fileIds,
+          attachedFileIds: agent.tool_resources?.[req.body.tool_resource]?.file_ids ?? [],
+          files: dbFiles.map((file) => ({
+            file_id: file.file_id,
+            owner: file.user?.toString() ?? null,
+            file,
+          })),
+          userId: req.user.id.toString(),
+        },
+        {
+          getSharedResourceFileIds: db.getSharedResourceFileIds,
+          removeAgentResourceFiles: db.removeAgentResourceFiles,
+          deleteFiles: (agentFiles) => processDeleteRequest({ req, files: agentFiles }),
+        },
+      );
+
+      if (agentDeletion.outcome == null) {
         res.status(200).json({ message: 'File associations removed successfully from agent' });
         return;
       }
 
-      await db.removeAgentResourceFiles({
-        agent_id: req.body.agent_id,
-        files: agentFiles,
-      });
-      res.status(200).json({ message: 'File associations removed successfully from agent' });
+      logger.debug(
+        `[/files] Agent files deleted successfully: ${agentDeletion.destroyedFileIds.join(', ')}`,
+      );
+      sendDeleteResult(agentDeletion.outcome, 'Files deleted successfully');
       return;
     }
 
@@ -781,7 +802,48 @@ const handleFileUpload = async (req, res) => {
 
   try {
     req.file.originalname = sanitizeFilename(req.file.originalname);
-    filterFile({ req });
+    const isAssistants = isAssistantsEndpoint(metadata.endpoint);
+
+    /* Authorization runs before anything reads the target agent. Validating against a
+     * record the caller cannot access answers with that agent's provider limits and
+     * content policy, so the rejection itself reports its configuration. */
+    if (!isAssistants) {
+      const denied = await verifyAgentUploadPermission({
+        req,
+        res,
+        metadata,
+        getAgent: ({ id }) => resolveUploadAgent(req, id),
+        checkPermission,
+        hasUploadBypass: () => hasCapability(req.user, SystemCapabilities.MANAGE_AGENTS),
+      });
+      if (denied) {
+        return;
+      }
+    }
+
+    /* Same configuration for validation and routing: an agent upload arrives as
+     * `agents` but is processed under the agent's own provider. */
+    const effectiveEndpoint = await resolveUploadEndpoint({
+      endpoint: metadata.endpoint,
+      agent_id: metadata.agent_id,
+      req,
+    });
+    /* Carried so processing routes under the same configuration validation used, and so
+     * it can tell whether any enabled tool could consume a file kept off the model path,
+     * both from the one agent read this request already made. */
+    metadata.effectiveEndpoint = effectiveEndpoint;
+    /* Left undefined when no agent record backs this upload, as for an ephemeral agent
+     * that exists only for the request. Processing then cannot judge what tools could
+     * consume the file and does not try. */
+    const uploadAgent = await resolveUploadAgent(req, metadata.agent_id);
+    metadata.agentTools = uploadAgent?.tools;
+    metadata.useResponsesApi ??= uploadAgent?.model_parameters?.useResponsesApi;
+    filterFile({ req, endpoint: effectiveEndpoint });
+
+    /* Same destination the processing path will use: a unified upload routed to text
+     * becomes a context resource, and the preflight must account for that extraction
+     * before fail-closing on an uninspectable derived field. */
+    const effectiveToolResource = await resolveEffectiveToolResource({ req, metadata });
 
     /** Check the role permission before any content inspection: a forbidden upload
      * must be rejected without reading or embedding the file. */
@@ -803,7 +865,7 @@ const handleFileUpload = async (req, res) => {
       filters: req.config?.filters,
       file: req.file,
       endpoint: metadata.endpoint,
-      toolResource: metadata.tool_resource,
+      toolResource: effectiveToolResource,
       fileConfig: mergeFileConfig(req.config?.fileConfig),
       ocrConfigured: req.config?.ocr != null,
       ragConfigured: !!process.env.RAG_API_URL,
@@ -813,7 +875,7 @@ const handleFileUpload = async (req, res) => {
     metadata.temp_file_id = metadata.file_id;
     metadata.file_id = req.file_id;
 
-    if (isAssistantsEndpoint(metadata.endpoint)) {
+    if (isAssistants) {
       openSseStreamIfRequested();
       return await processFileUpload({
         req,
@@ -822,26 +884,6 @@ const handleFileUpload = async (req, res) => {
         sseStream,
         openai: legacyAssistantUpload.openai,
       });
-    }
-
-    let skipUploadAuth = false;
-    try {
-      skipUploadAuth = await hasCapability(req.user, SystemCapabilities.MANAGE_AGENTS);
-    } catch (err) {
-      logger.warn('[/files] capability check failed, denying bypass:', getSafeErrorMetadata(err));
-    }
-
-    if (!skipUploadAuth) {
-      const denied = await verifyAgentUploadPermission({
-        req,
-        res,
-        metadata,
-        getAgent: db.getAgent,
-        checkPermission,
-      });
-      if (denied) {
-        return;
-      }
     }
 
     openSseStreamIfRequested();

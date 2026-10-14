@@ -1,6 +1,8 @@
-import React, { useState, useMemo, memo } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import { Copy, Check } from 'lucide';
+import { useAtomValue } from 'jotai';
 import { useRecoilState } from 'recoil';
+import { getSpeechText, findMessageById, isUserInitiatedCompaction } from 'librechat-data-provider';
 import {
   Button,
   EditIcon,
@@ -10,7 +12,10 @@ import {
   RegenerateIcon,
 } from '@librechat/client';
 import type { TConversation, TMessage, TFeedback } from 'librechat-data-provider';
+import { useMessagesIsSubmitting, useOptionalMessagesOperations } from '~/Providers';
 import { useGenerationsByLatest, useLocalize } from '~/hooks';
+import { hasEditablePart } from './Content/editableParts';
+import { revealedQueuedTurnFamily } from '~/store/steer';
 import { Fork } from '~/components/Conversations';
 import { hoverButtonClasses } from './styles';
 import MessageAudio from './MessageAudio';
@@ -24,11 +29,14 @@ type THoverButtons = {
   copyToClipboard: (setIsCopied: React.Dispatch<React.SetStateAction<boolean>>) => void;
   getCanCopy: () => boolean;
   conversation: TConversation | null;
-  isSubmitting: boolean;
   message: TMessage;
   regenerate: () => void;
   handleContinue: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  /** The tail as of the row's last render, which the row re-renders on whenever
+   *  this message enters or leaves it; compared against, never sent anywhere. */
   latestMessageId?: string;
+  /** The tail at call time, for actions that send it (forking at a split target). */
+  getLatestMessageId?: () => string | undefined;
   isLast: boolean;
   index: number;
   handleFeedback?: ({ feedback }: { feedback: TFeedback | undefined }) => void;
@@ -45,38 +53,6 @@ type HoverButtonProps = {
   buttonStyle?: string;
   dataTestId?: string;
   disabled?: boolean;
-};
-
-const extractMessageContent = (message: TMessage): string => {
-  if (typeof message.content === 'string') {
-    return message.content;
-  }
-
-  if (Array.isArray(message.content)) {
-    return message.content
-      .map((part) => {
-        if (part == null) {
-          return '';
-        }
-        if (typeof part === 'string') {
-          return part;
-        }
-        if ('text' in part) {
-          return part.text || '';
-        }
-        if ('think' in part) {
-          const think = part.think;
-          if (typeof think === 'string') {
-            return think;
-          }
-          return think && 'text' in think ? think.text || '' : '';
-        }
-        return '';
-      })
-      .join('');
-  }
-
-  return message.text || '';
 };
 
 const HoverButton = memo(
@@ -124,17 +100,22 @@ const HoverButtons = ({
   copyToClipboard,
   getCanCopy,
   conversation,
-  isSubmitting,
   message,
   regenerate,
   handleContinue,
   latestMessageId,
+  getLatestMessageId,
   isLast,
   handleFeedback,
 }: THoverButtons) => {
   const localize = useLocalize();
+  /** Subscribed here rather than passed down: a send toggles the rerun controls on
+   *  every row, and only this toolbar has to re-render for it. */
+  const isSubmitting = useMessagesIsSubmitting();
   const [isCopied, setIsCopied] = useState(false);
   const [TextToSpeech] = useRecoilState<boolean>(store.textToSpeech);
+  const { getMessages } = useOptionalMessagesOperations();
+  const pendingReveal = useAtomValue(revealedQueuedTurnFamily(conversation?.conversationId ?? ''));
 
   const endpoint = useMemo(() => {
     if (!conversation) {
@@ -143,15 +124,44 @@ const HoverButtons = ({
     return conversation.endpointType ?? conversation.endpoint;
   }, [conversation]);
 
+  /** Which turn a rerun would replay, resolved for a model turn only. The lookup
+   *  goes through the messages array's memoized id index, so a conversation is
+   *  indexed once for all its rows rather than scanned once per row, and the memo
+   *  is keyed on the parent id: `getMessages` is a cache read, not a subscription,
+   *  and a parent's authorship never changes. Outside the messages view (a search
+   *  row) the thread is unavailable and the answer stays unknown; with the thread
+   *  in hand a parent that does not resolve is absent — an imported reply the
+   *  lineage left at the root — and there is no turn to replay, which `regenerate`
+   *  can only log about once the button is pressed. */
+  const parentIsUserMessage = useMemo(() => {
+    if (message.isCreatedByUser === true) {
+      return undefined;
+    }
+    const messages = getMessages();
+    if (messages == null) {
+      return undefined;
+    }
+    return findMessageById(messages, message.parentMessageId)?.isCreatedByUser === true;
+  }, [getMessages, message.isCreatedByUser, message.parentMessageId]);
+
+  /** Resolved only if the row has nothing to replay, because the artifact check
+   *  inside parses markdown. */
+  const getHasEditablePart = useCallback(() => hasEditablePart(message), [message]);
+
+  /** A pending queued follow-up is a generation about to start: no rerun or
+   *  continuation may race it, exactly as while a run is submitting. */
   const generationCapabilities = useGenerationsByLatest({
     isEditing,
-    isSubmitting,
+    isSubmitting: isSubmitting || pendingReveal != null,
     error: message.error,
     endpoint: endpoint ?? '',
     messageId: message.messageId,
     searchResult: message.searchResult,
     finish_reason: message.finish_reason,
     isCreatedByUser: message.isCreatedByUser,
+    getHasEditablePart,
+    parentIsUserMessage,
+    isUserInitiatedCompaction: isUserInitiatedCompaction(message),
     latestMessageId: latestMessageId,
   });
 
@@ -184,16 +194,17 @@ const HoverButtons = ({
   };
 
   const handleCopy = () => copyToClipboard(setIsCopied);
+  const speechText = getSpeechText(message);
 
   return (
-    <div className="group visible flex justify-center gap-0.5 self-end focus-within:outline-none lg:justify-start">
+    <div className="group visible flex justify-center gap-0.5 self-end focus-within:outline-hidden lg:justify-start">
       {/* Text to Speech */}
-      {TextToSpeech && !error && !isActiveStreamingMessage && (
+      {TextToSpeech && !error && !isActiveStreamingMessage && speechText.length > 0 && (
         <MessageAudio
           index={index}
           isLast={isLast}
           messageId={message.messageId}
-          content={extractMessageContent(message)}
+          content={speechText}
           renderButton={(props) => (
             <HoverButton
               onClick={props.onClick}
@@ -214,7 +225,7 @@ const HoverButtons = ({
           title={
             isCopied ? localize('com_ui_copied_to_clipboard') : localize('com_ui_copy_to_clipboard')
           }
-          icon={<MorphIcon icon={isCopied ? Check : Copy} size={19} />}
+          icon={<MorphIcon icon={isCopied ? Check : Copy} size="1.1875rem" />}
           isLast={isLast}
           disabled={!canCopy}
           className={cn(
@@ -246,7 +257,7 @@ const HoverButtons = ({
           messageId={message.messageId}
           conversationId={conversation.conversationId}
           forkingSupported={forkingSupported}
-          latestMessageId={latestMessageId}
+          getLatestMessageId={getLatestMessageId ?? (() => latestMessageId)}
           isLast={isLast}
         />
       )}
@@ -273,7 +284,7 @@ const HoverButtons = ({
         <HoverButton
           onClick={(e) => e && handleContinue(e)}
           title={localize('com_ui_continue')}
-          icon={<ContinueIcon className="w-19 h-19 -rotate-180" />}
+          icon={<ContinueIcon className="-rotate-180" />}
           isLast={isLast}
           dataTestId={isLast ? 'continue-generation-button' : undefined}
           className="active"

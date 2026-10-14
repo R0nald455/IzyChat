@@ -44,7 +44,7 @@ jest.mock('~/hooks/Chat/useBookmarkItems', () => ({
     return mockHookState.bookmarks;
   },
 }));
-jest.mock('~/hooks/Chat/useExportShare', () => ({
+jest.mock('~/hooks/Chat/useChatOptions', () => ({
   __esModule: true,
   default: () => mockHookState.exportShare,
 }));
@@ -186,8 +186,37 @@ describe('HeaderMenu', () => {
     expect(screen.getByTestId('header-menu-shared-link-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('header-overflow-menu')).toHaveAttribute(
       'aria-label',
-      'com_ui_export_share_link_active',
+      'com_ui_chat_options_link_active',
     );
+  });
+
+  it('offers the trace in its own group only when the header says one is available', () => {
+    const { rerender } = render(<HeaderMenu trace={{ show: false, open: jest.fn() }} />);
+    expect(labels()).not.toContain('com_ui_trace_view');
+
+    rerender(<HeaderMenu trace={{ show: true, open: jest.fn() }} />);
+
+    expect(labels()).toEqual([
+      'com_ui_bookmarks',
+      'com_ui_add_multi_conversation',
+      'com_ui_trace_view',
+      'share',
+      'export',
+      'com_ui_temporary',
+    ]);
+    expect(rows().filter((node) => node.getAttribute('data-kind') === 'separator')).toHaveLength(3);
+  });
+
+  it('keeps the trace reachable when it is the only action left', () => {
+    mockHookState.multiConvo.show = false;
+    mockHookState.temporary.show = false;
+    mockHookState.bookmarks.show = false;
+    mockHookState.exportShare.show = false;
+
+    render(<HeaderMenu trace={{ show: true, open: jest.fn() }} />);
+
+    expect(labels()).toEqual(['com_ui_trace_view']);
+    expect(rows()[0]).toHaveAttribute('data-kind', 'item');
   });
 
   it('shows temporary chat as active to sighted users, not just assistive tech', () => {

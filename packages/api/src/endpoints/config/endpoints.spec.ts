@@ -177,6 +177,32 @@ describe('createEndpointsConfigService', () => {
       expect(result?.[EModelEndpoint.agents]?.maxSubagents).toBe(20);
     });
 
+    it.each([true, false])(
+      'exposes file sharing policy to the agent builder when enabled=%s',
+      async (enabled) => {
+        const fileSharing = {
+          enabled,
+          allowSiblingSharing: false,
+          maxFiles: 100,
+          ttlMs: 3_600_000,
+        };
+        const deps = createMockDeps({
+          loadDefaultEndpointsConfig: jest.fn().mockResolvedValue({
+            [EModelEndpoint.agents]: { userProvide: false, order: 0 },
+          }),
+          getAppConfig: jest
+            .fn()
+            .mockResolvedValue(
+              appConfig({ endpoints: { [EModelEndpoint.agents]: { fileSharing } } }),
+            ),
+        });
+        const { getEndpointsConfig } = createEndpointsConfigService(deps);
+        const result = await getEndpointsConfig(fakeReq());
+
+        expect(result?.[EModelEndpoint.agents]?.fileSharing).toEqual(fileSharing);
+      },
+    );
+
     it('exposes the deployment stateful environment allowlist', async () => {
       const deps = createMockDeps({
         loadDefaultEndpointsConfig: jest.fn().mockResolvedValue({
@@ -220,6 +246,8 @@ describe('createEndpointsConfigService', () => {
 
       expect(result?.[EModelEndpoint.agents]?.statefulCodeSessions).toEqual({
         allowedEnvironments: ['user', 'agent-user'],
+        allowEnvironmentSelection: true,
+        maxEnvironmentChoices: 32,
         approvalsEnabled: false,
         approvalModes: [],
         environments: [
@@ -273,10 +301,68 @@ describe('createEndpointsConfigService', () => {
 
       expect(result?.[EModelEndpoint.agents]?.statefulCodeSessions).toEqual({
         allowedEnvironments: ['user'],
+        allowEnvironmentSelection: true,
+        maxEnvironmentChoices: 32,
         approvalsEnabled: true,
         approvalModes: ['ask', 'acceptEdits', 'fullAccess'],
         environments: [],
       });
+    });
+
+    it.each([
+      [undefined, true],
+      [true, true],
+      [false, undefined],
+    ])(
+      'advertises machine selection unless the deployment turns it off (configured: %p)',
+      async (allowEnvironmentSelection, advertised) => {
+        const deps = createMockDeps({
+          loadDefaultEndpointsConfig: jest.fn().mockResolvedValue({
+            [EModelEndpoint.agents]: { userProvide: false, order: 0 },
+          }),
+          getAppConfig: jest.fn().mockResolvedValue(
+            appConfig({
+              endpoints: {
+                [EModelEndpoint.agents]: {
+                  statefulCodeSessions: {
+                    ...(allowEnvironmentSelection === undefined
+                      ? {}
+                      : { allowEnvironmentSelection }),
+                  },
+                },
+              },
+            }),
+          ),
+        });
+        const { getEndpointsConfig } = createEndpointsConfigService(deps);
+        const result = await getEndpointsConfig(fakeReq());
+        const advertisedConfig = result?.[EModelEndpoint.agents]?.statefulCodeSessions;
+        expect(advertisedConfig?.allowEnvironmentSelection).toBe(advertised);
+        expect(advertisedConfig?.maxEnvironmentChoices).toBe(advertised ? 32 : undefined);
+      },
+    );
+
+    it('does not advertise machine selection when the decision protocol is off', async () => {
+      process.env.CODE_ENVIRONMENT_DECISION_VERSION = '0';
+      try {
+        const deps = createMockDeps({
+          loadDefaultEndpointsConfig: jest.fn().mockResolvedValue({
+            [EModelEndpoint.agents]: { userProvide: false, order: 0 },
+          }),
+          getAppConfig: jest.fn().mockResolvedValue(
+            appConfig({
+              endpoints: { [EModelEndpoint.agents]: { statefulCodeSessions: {} } },
+            }),
+          ),
+        });
+        const { getEndpointsConfig } = createEndpointsConfigService(deps);
+        const result = await getEndpointsConfig(fakeReq());
+        expect(
+          result?.[EModelEndpoint.agents]?.statefulCodeSessions?.allowEnvironmentSelection,
+        ).toBeUndefined();
+      } finally {
+        delete process.env.CODE_ENVIRONMENT_DECISION_VERSION;
+      }
     });
 
     it.each([
@@ -427,7 +513,7 @@ describe('createEndpointsConfigService', () => {
                           name: 'FOO',
                           apiKey: '${FOO_KEY}',
                           baseURL: '${FOO_URL}',
-                          models: { fetch: true },
+                          models: { default: ['foo-model'], fetch: true },
                         },
                       ],
                     },
