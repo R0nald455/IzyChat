@@ -7,7 +7,7 @@ import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
 import { langSubset, remarkApproxTilde } from '~/utils';
 import { reportBoundaryError } from '~/lib/rum/logs';
-import { CodeBlockProvider } from '~/Providers';
+import { CodeBlockProvider, TableExportProvider } from '~/Providers';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -60,8 +60,9 @@ class MarkdownErrorBoundary extends React.Component<
       ];
 
       return (
-        <CodeBlockProvider>
-          <ReactMarkdown
+        <TableExportProvider>
+          <CodeBlockProvider>
+            <ReactMarkdown
             remarkPlugins={[
               remarkApproxTilde,
               /** @ts-ignore */
@@ -86,8 +87,9 @@ class MarkdownErrorBoundary extends React.Component<
             }
           >
             {content}
-          </ReactMarkdown>
-        </CodeBlockProvider>
+            </ReactMarkdown>
+          </CodeBlockProvider>
+        </TableExportProvider>
       );
     }
 

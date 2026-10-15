@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import type { PluggableList } from 'unified';
 import type { ElementType } from 'react';
 import type { MarkdownSplitter } from './splitMarkdown';
-import { ArtifactProvider, CodeBlockProvider } from '~/Providers';
+import { ArtifactProvider, CodeBlockProvider, TableExportProvider } from '~/Providers';
 import { createMarkdownSplitter } from './splitMarkdown';
 import { createFadePlugin } from './animate';
 
@@ -62,8 +62,9 @@ const MarkdownBlock = memo(
     });
     return (
       <ArtifactProvider baseIndex={artifactBaseIndex}>
-        <CodeBlockProvider baseIndex={codeBaseIndex} mermaidBaseIndex={mermaidBaseIndex}>
-          <ReactMarkdown
+        <TableExportProvider>
+          <CodeBlockProvider baseIndex={codeBaseIndex} mermaidBaseIndex={mermaidBaseIndex}>
+            <ReactMarkdown
             /** @ts-ignore */
             remarkPlugins={remarkPlugins}
             /** @ts-ignore */
@@ -71,8 +72,9 @@ const MarkdownBlock = memo(
             components={components}
           >
             {content}
-          </ReactMarkdown>
-        </CodeBlockProvider>
+            </ReactMarkdown>
+          </CodeBlockProvider>
+        </TableExportProvider>
       </ArtifactProvider>
     );
   },

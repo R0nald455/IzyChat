@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
-import { CodeBlockProvider, ArtifactProvider } from '~/Providers';
+import { ArtifactProvider, CodeBlockProvider, TableExportProvider } from '~/Providers';
 import MarkdownErrorBoundary from './MarkdownErrorBoundary';
 import { langSubset, remarkApproxTilde } from '~/utils';
 
@@ -28,8 +28,9 @@ const MarkdownLite = memo(
     return (
       <MarkdownErrorBoundary content={content} codeExecution={codeExecution}>
         <ArtifactProvider>
-          <CodeBlockProvider>
-            <ReactMarkdown
+          <TableExportProvider>
+            <CodeBlockProvider>
+              <ReactMarkdown
               remarkPlugins={[
                 remarkApproxTilde,
                 /** @ts-ignore */
@@ -52,8 +53,9 @@ const MarkdownLite = memo(
               }
             >
               {content}
-            </ReactMarkdown>
-          </CodeBlockProvider>
+              </ReactMarkdown>
+            </CodeBlockProvider>
+          </TableExportProvider>
         </ArtifactProvider>
       </MarkdownErrorBoundary>
     );
