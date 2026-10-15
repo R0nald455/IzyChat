@@ -1,10 +1,10 @@
 import React, { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
-import * as Ariakit from '@ariakit/react';
-import { FileCode2, FileSpreadsheet, ImageDown, LoaderCircle } from 'lucide-react';
 import download from 'downloadjs';
+import * as Ariakit from '@ariakit/react';
 import { DropdownPopup, TooltipAnchor } from '@librechat/client';
-import type { MenuItemProps } from '~/common';
+import { FileCode2, FileSpreadsheet, ImageDown, LoaderCircle } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks/useLocalize';
+import type { MenuItemProps } from '~/common';
 import {
   buildTableFilename,
   matrixToCsv,
@@ -16,6 +16,18 @@ import { useLocalize } from '~/hooks';
 import cn from '~/utils/cn';
 
 type ExportFormat = 'csv' | 'xlsx' | 'html';
+
+function formatMenuIcon(format: ExportFormat, exporting: ExportFormat | null) {
+  if (exporting === format) {
+    return (
+      <LoaderCircle className="text-text-secondary size-4 animate-spin motion-reduce:animate-none" />
+    );
+  }
+  if (format === 'html') {
+    return <FileCode2 className="text-text-secondary size-4" />;
+  }
+  return <FileSpreadsheet className="text-text-secondary size-4" />;
+}
 
 const FORMATS: ReadonlyArray<{
   format: ExportFormat;
@@ -99,14 +111,7 @@ const TableExportMenu = memo(function TableExportMenu({
     () =>
       FORMATS.map(({ format, labelKey }) => ({
         label: localize(labelKey),
-        icon:
-          exporting === format ? (
-            <LoaderCircle className="text-text-secondary size-4 animate-spin motion-reduce:animate-none" />
-          ) : format === 'html' ? (
-            <FileCode2 className="text-text-secondary size-4" />
-          ) : (
-            <FileSpreadsheet className="text-text-secondary size-4" />
-          ),
+        icon: formatMenuIcon(format, exporting),
         disabled: isBusy,
         onClick: () => {
           void runExport(format);
@@ -116,46 +121,47 @@ const TableExportMenu = memo(function TableExportMenu({
   );
 
   return (
-    <DropdownPopup
-      portal
-      focusLoop
-      unmountOnHide
-      menuId={`table-export-${menuId}`}
-      finalFocus={triggerRef}
-      isOpen={isOpen}
-      setIsOpen={setIsOpen}
-      items={items}
-      minWidth="12rem"
-      className="absolute top-1 right-1 z-10 motion-reduce:!transition-none"
-      trigger={
-        <TooltipAnchor
-          description={localize('com_ui_export_table')}
-          render={
-            <Ariakit.MenuButton
-              ref={triggerRef}
-              aria-label={localize('com_ui_export_table')}
-              aria-busy={isBusy || undefined}
-              className={cn(
-                'text-text-secondary flex items-center justify-center rounded-lg p-1.5 transition-opacity motion-reduce:transition-none',
-                'bg-surface-primary/90 shadow-sm backdrop-blur-sm',
-                'hover:bg-surface-hover hover:text-text-primary',
-                'focus-visible:outline-focus-subtle focus-visible:outline focus-visible:outline-2',
-                'opacity-0 group-hover/table:opacity-100 group-focus-within/table:opacity-100',
-              )}
-            >
-              {isBusy ? (
-                <LoaderCircle
-                  className="size-4 animate-spin motion-reduce:animate-none"
-                  aria-hidden="true"
-                />
-              ) : (
-                <ImageDown className="size-4" aria-hidden="true" />
-              )}
-            </Ariakit.MenuButton>
-          }
-        />
-      }
-    />
+    <div className="pointer-events-none absolute top-0.5 right-0.5 z-10">
+      <DropdownPopup
+        portal
+        focusLoop
+        unmountOnHide
+        menuId={`table-export-${menuId}`}
+        finalFocus={triggerRef}
+        isOpen={isOpen}
+        setIsOpen={setIsOpen}
+        items={items}
+        minWidth="12rem"
+        trigger={
+          <TooltipAnchor
+            description={localize('com_ui_export_table')}
+            render={
+              <Ariakit.MenuButton
+                ref={triggerRef}
+                aria-label={localize('com_ui_export_table')}
+                aria-busy={isBusy || undefined}
+                className={cn(
+                  'text-text-secondary pointer-events-auto flex items-center justify-center rounded-md p-1 transition-opacity motion-reduce:transition-none',
+                  'bg-surface-primary/95 border-border-light border shadow-sm backdrop-blur-sm',
+                  'hover:bg-surface-hover hover:text-text-primary',
+                  'focus-visible:outline-focus-subtle focus-visible:outline focus-visible:outline-2',
+                  'opacity-0 group-focus-within/table:opacity-100 group-hover/table:opacity-100',
+                )}
+              >
+                {isBusy ? (
+                  <LoaderCircle
+                    className="size-4 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <ImageDown className="size-4" aria-hidden="true" />
+                )}
+              </Ariakit.MenuButton>
+            }
+          />
+        }
+      />
+    </div>
   );
 });
 
