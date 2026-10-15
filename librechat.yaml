@@ -133,22 +133,8 @@ cache: true
 
 
 mcpServers:
-  # Integración administrada: un solo servidor MCP, compartido por todos los
-  # usuarios, sin nada que el usuario final pueda configurar.
-  #
-  # La identidad la aporta LibreChat, no el usuario. IzyTesting es el proveedor
-  # OIDC contra el que se inicia sesión, así que LibreChat ya tiene el access
-  # token de cada persona y lo reenvía en la cabecera. Antes esto era `stdio`
-  # con dos `customUserVars`, y cada usuario tenía que generar una API key en
-  # IzyTesting y pegarla acá; no hay nada que pegar.
-  #
-  # `{{LIBRECHAT_OPENID_ACCESS_TOKEN}}` se resuelve **antes de cada tool call**,
-  # así que el token que viaja nunca está vencido; si no se puede resolver,
-  # LibreChat responde 401 pidiendo re-autenticación en vez de llamar al MCP.
-  # Requiere OPENID_REUSE_TOKENS=true, que es lo que puebla `federatedTokens`.
-  #
-  # `${VAR}` se expande desde el entorno del servidor antes que cualquier dato
-  # de usuario, así que la llave de portería no pasa por sustitución de usuario.
+  # Integración administrada: MCP HTTP compartido. LibreChat manda la llave de
+  # portería; el token personal de IzyTesting (`izy_mcp_`) va en izytesting-mcp/.env.
   izytesting:
     title: IzyTesting
     description: Requerimientos, casos, bugs y automatización de IzyTesting
@@ -160,12 +146,7 @@ mcpServers:
     timeout: 120000
     initTimeout: 30000
     headers:
-      # Quién es el usuario.
-      Authorization: "Bearer {{LIBRECHAT_OPENID_ACCESS_TOKEN}}"
-      # Que este cliente es LibreChat. Secreto entre administradores.
-      X-Izy-Mcp-Key: "${IZYTESTING_HTTP_KEY}"
-    # Sin customUserVars a propósito: el usuario no tiene nada que configurar,
-    # y mientras se declaren es él quien controla su credencial.
+      Authorization: "Bearer ${IZYTESTING_HTTP_KEY}"
 
   browser:
     title: Browser
@@ -183,6 +164,26 @@ mcpServers:
 
 # Custom interface configuration
 interface:
+  # Tema de marca IzyBot (#3fb0e5). LibreChat v0.8+ aplica colores por tokens;
+  # este bloque tiene prioridad sobre localStorage y REACT_APP_THEME_*.
+  # Tras cambiarlo: reiniciar el contenedor api (no hace falta rebuild del cliente).
+  theme:
+    version: 1
+    name: izybot
+    modes:
+      light:
+        colors:
+          rgb-accent-primary: '63 176 229'
+          rgb-accent-primary-hover: '45 154 212'
+          rgb-surface-submit: '63 176 229'
+          rgb-surface-submit-hover: '45 154 212'
+      dark:
+        colors:
+          rgb-accent-primary: '63 176 229'
+          rgb-accent-primary-hover: '45 154 212'
+          rgb-surface-submit: '63 176 229'
+          rgb-surface-submit-hover: '45 154 212'
+
   # customWelcome: 'Hola, soy IZYBOT. ¿En qué puedo ayudarte?'
   # Enable/disable file search as a chatarea selection (default: true)
   # Note: This setting does not disable the Agents File Search Capability.
@@ -351,40 +352,11 @@ registration:
   # allowedDomains:
   # - "gmail.com"
 
-# Cupo mensual por usuario.
-#
-# La unidad es el tokenCredit: 1000 credits = 1 mill = $0.001 USD, o sea
-# 1 credit = $0.000001. El tope de negocio es de USD 4 al mes por persona,
-# así que el cupo es 4 * 1e6 = 4.000.000 de credits.
-#
-# Cuántos tokens son depende del modelo. Con `claude-haiku-4-5`
-# ($1 por millón de entrada, $5 por millón de salida) el cupo da:
-#   - ~4.000.000 de tokens si todo fuera entrada,
-#   -   ~800.000 de tokens si todo fuera salida,
-#   - ~2.200.000 de tokens con una mezcla realista de 80% entrada / 20% salida
-#     (0,8 * 1 + 0,2 * 5 = 1,8 credits por token).
-# Como el cupo se lleva en credits y no en tokens, el tope en dólares se
-# respeta aunque cambie el modelo o su tarifa.
-#
-# La recarga NO se acumula: `checkBalance` solo aplica `refillAmount` cuando el
-# saldo se agotó y además pasó el intervalo desde `lastRefill`. Quien no gasta
-# no arrastra saldo al mes siguiente, y nadie puede gastar más de USD 4 al mes.
-balance:
-  enabled: true
-  startBalance: 1000000
-  autoRefillEnabled: true
-  refillIntervalValue: 1
-  refillIntervalUnit: months
-  refillAmount: 1000000
-
-
 # Example Transactions settings
 # Controls whether to save transaction records to the database
 # Default is true (enabled)
 #transactions:
 #  enabled: false
-# Note: If balance.enabled is true, transactions will always be enabled
-# regardless of this setting to ensure balance tracking works correctly
 
 # Speech (STT/TTS) outbound requests to operator-provided target URLs are SSRF-guarded
 # at connect time: private, loopback, link-local, and cloud-metadata targets are blocked
@@ -400,7 +372,7 @@ balance:
 # When a forward proxy is configured (PROXY / HTTP(S)_PROXY), it performs DNS and egress in its
 # own network context, so these requests are delegated to it and it must be SSRF-enforcing; the
 # connect-time guard only covers direct, non-proxied connections.
-# speech:
+speech:
 #   tts:
 #     openai:
 #       url: ''
@@ -411,14 +383,14 @@ balance:
 #       - 'localhost:8020'
 #       - '127.0.0.1:8020'
 #
-#   stt:
-#     openai:
-#       url: ''
-#       apiKey: '${STT_API_KEY}'
-#       model: ''
-#     allowedAddresses:
-#       - 'localhost:8000'
-#       - '127.0.0.1:8000'
+  stt:
+    openai:
+      # url: ''
+      apiKey: '${STT_API_KEY}'
+      model: 'whisper-1'
+    # allowedAddresses:
+    #   - 'localhost:8000'
+    #   - '127.0.0.1:8000'
 
 # OCR (Mistral / Mistral-compatible) outbound requests to `ocr.baseURL` are SSRF-guarded at
 # connect time with the same default-deny for private targets. To point OCR at a private or
@@ -1407,4 +1379,4 @@ modelSpecs:
       default: true
       preset:
         endpoint: agents
-        agent_id: agent_KvOvw6bSLyV6rSViL8tJ2
+        agent_id: agent_SBRXYh4zeNsi5y_JDOX7k
