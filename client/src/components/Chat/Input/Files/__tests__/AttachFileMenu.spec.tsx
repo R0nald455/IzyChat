@@ -392,7 +392,8 @@ describe('AttachFileMenu', () => {
     it('passes File Search resource when the file input changes before React state commits', () => {
       setupMocks();
       const handleFileChange = jest.fn();
-      mockUseFileHandlingNoChatContext.mockReturnValue({ handleFileChange });
+      const handleFiles = jest.fn();
+      mockUseFileHandlingNoChatContext.mockReturnValue({ handleFileChange, handleFiles });
       mockUseAgentCapabilities.mockReturnValue({
         contextEnabled: false,
         fileSearchEnabled: true,
@@ -425,12 +426,67 @@ describe('AttachFileMenu', () => {
         HTMLInputElement.prototype.click = originalClick;
       }
 
-      expect(handleFileChange).toHaveBeenNthCalledWith(1, expect.any(Object), undefined);
-      expect(handleFileChange).toHaveBeenNthCalledWith(
-        2,
-        expect.any(Object),
-        EToolResources.file_search,
-      );
+      expect(handleFiles).toHaveBeenCalledTimes(1);
+      expect(handleFiles).toHaveBeenCalledWith([file], EToolResources.file_search);
+      expect(handleFileChange).toHaveBeenCalledTimes(1);
+      expect(handleFileChange).toHaveBeenCalledWith(expect.any(Object), EToolResources.file_search);
+    });
+
+    const uploadToProvider = (selected: File[]) => {
+      const originalClick = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function click() {
+        Object.defineProperty(this, 'files', { configurable: true, value: selected });
+        fireEvent.change(this);
+      };
+      try {
+        renderMenu({ endpointType: EModelEndpoint.openAI });
+        openMenu();
+        fireEvent.click(screen.getByText('Upload to Provider'));
+      } finally {
+        HTMLInputElement.prototype.click = originalClick;
+      }
+    };
+
+    it('sends provider-upload documents to file search and images to the provider without the agent tool', () => {
+      setupMocks();
+      const handleFileChange = jest.fn();
+      const handleFiles = jest.fn();
+      mockUseFileHandlingNoChatContext.mockReturnValue({ handleFileChange, handleFiles });
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: true,
+        codeEnabled: false,
+      });
+      mockUseAgentToolPermissions.mockReturnValue({
+        fileSearchAllowedByAgent: false,
+        codeAllowedByAgent: false,
+        provider: undefined,
+      });
+      const image = new File(['img'], 'photo.png', { type: 'image/png' });
+      const pdf = new File(['pdf'], 'doc.pdf', { type: 'application/pdf' });
+
+      uploadToProvider([image, pdf]);
+
+      expect(handleFileChange).not.toHaveBeenCalled();
+      expect(handleFiles).toHaveBeenCalledWith([image]);
+      expect(handleFiles).toHaveBeenCalledWith([pdf], EToolResources.file_search);
+    });
+
+    it('keeps the plain provider upload when file search is disabled', () => {
+      setupMocks();
+      const handleFileChange = jest.fn();
+      const handleFiles = jest.fn();
+      mockUseFileHandlingNoChatContext.mockReturnValue({ handleFileChange, handleFiles });
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: false,
+        codeEnabled: false,
+      });
+
+      uploadToProvider([new File(['pdf'], 'doc.pdf', { type: 'application/pdf' })]);
+
+      expect(handleFiles).not.toHaveBeenCalled();
+      expect(handleFileChange).toHaveBeenCalledWith(expect.any(Object), undefined);
     });
   });
 

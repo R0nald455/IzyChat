@@ -1041,3 +1041,22 @@ export function sortPagesByRelevance(
 export function normalizeExportFilename(filename: string): string {
   return filename.replace(/\s+/g, '_');
 }
+
+const providerMediaPrefixes = ['image/', 'video/', 'audio/'];
+
+/**
+ * IzyChat: separa una subida "al proveedor" en medios (van al LLM como siempre) y
+ * documentos (se vectorizan con `file_search` para el RAG).
+ */
+export function splitProviderUploads(files: FileList | File[]): {
+  media: File[];
+  documents: File[];
+} {
+  const media: File[] = [];
+  const documents: File[] = [];
+  for (const file of Array.from(files)) {
+    const isMedia = providerMediaPrefixes.some((prefix) => file.type.startsWith(prefix));
+    (isMedia ? media : documents).push(file);
+  }
+  return { media, documents };
+}

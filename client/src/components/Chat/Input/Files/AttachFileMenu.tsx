@@ -48,7 +48,7 @@ import { SharePointPickerDialog } from '~/components/SharePoint';
 import { MenuItemProps, isEphemeralAgent } from '~/common';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
-import { cn } from '~/utils';
+import { cn, splitProviderUploads } from '~/utils';
 
 type FileUploadType =
   | 'image'
@@ -110,7 +110,8 @@ const AttachFileMenu = ({
     ephemeralAgentByConvoId(conversationId),
   );
   const toolResourceRef = useRef<EToolResources | undefined>();
-  const { handleFileChange } = useFileHandlingNoChatContext(undefined, {
+  const providerRagRef = useRef(false);
+  const { handleFileChange, handleFiles } = useFileHandlingNoChatContext(undefined, {
     files,
     setFiles,
     setFilesLoading,
@@ -152,6 +153,9 @@ const AttachFileMenu = ({
   const showFileSearchUpload =
     capabilities.fileSearchEnabled &&
     (isEphemeralAgent(agentId) ? canUseFileSearch : fileSearchAllowedByAgent);
+
+  /** El backend agrega `file_search` al agente cuando hay archivos vectorizados, así que basta la capability y el permiso. */
+  const providerUploadUsesRag = capabilities.fileSearchEnabled && canUseFileSearch;
 
   const handleUploadClick = useCallback(
     (fileType?: FileUploadType) => {
@@ -224,6 +228,11 @@ const AttachFileMenu = ({
           label: localize('com_ui_upload_provider'),
           onClick: () => {
             setToolResource(undefined);
+            if (providerUploadUsesRag) {
+              providerRagRef.current = true;
+              onAction();
+              return;
+            }
             let fileType: Exclude<FileUploadType, 'image' | 'document'> = 'image_document';
             if (currentProvider === Providers.GOOGLE || currentProvider === Providers.OPENROUTER) {
               fileType = 'image_document_video_audio';
@@ -321,6 +330,7 @@ const AttachFileMenu = ({
     sharePointEnabled,
     codeAllowedByAgent,
     showFileSearchUpload,
+    providerUploadUsesRag,
     setIsSharePointDialogOpen,
   ]);
 
@@ -361,8 +371,23 @@ const AttachFileMenu = ({
       <FileUpload
         ref={inputRef}
         handleFileChange={(e) => {
-          handleFileChange(e, toolResourceRef.current);
-          toolResourceRef.current = undefined;
+          const useRag = providerRagRef.current;
+          providerRagRef.current = false;
+          if (!useRag || !e.target.files?.length) {
+            handleFileChange(e, toolResourceRef.current);
+            toolResourceRef.current = undefined;
+            return;
+          }
+          e.stopPropagation();
+          const { media, documents } = splitProviderUploads(e.target.files);
+          e.target.value = '';
+          setFilesLoading(true);
+          if (media.length > 0) {
+            handleFiles(media);
+          }
+          if (documents.length > 0) {
+            handleFiles(documents, EToolResources.file_search);
+          }
         }}
       >
         <DropdownPopup

@@ -1018,6 +1018,17 @@ export async function initializeAgent(
   const provider = agent.provider;
   agent.endpoint = provider;
 
+  /**
+   * IzyChat: los documentos de "Subir al proveedor" se vectorizan (RAG en Qdrant), así que
+   * `file_search` se agrega en tiempo de ejecución aunque el agente no tenga la tool. Si al
+   * final no hay archivos vectorizados en el chat, se quita antes de cargar las tools.
+   */
+  const autoFileSearch =
+    params.fileSearchAvailable === true && !(agent.tools ?? []).includes(Tools.file_search);
+  if (autoFileSearch) {
+    agent.tools = [...(agent.tools ?? []), Tools.file_search];
+  }
+
   /** Resolve the per-agent Code API route before resource/tool priming. A
    * stateful agent must perform freshness checks and recovery uploads against
    * the same isolated deployment its eventual `/exec` request will use. */
@@ -1260,6 +1271,10 @@ export async function initializeAgent(
     tool_resources: agent.tool_resources,
     requestFileSet: new Set(requestFiles?.map((file) => file.file_id)),
   });
+
+  if (autoFileSearch && !tool_resources?.[EToolResources.file_search]?.files?.length) {
+    agent.tools = (agent.tools ?? []).filter((tool) => tool !== Tools.file_search);
+  }
 
   /**
    * Pre-resolve manually-invoked + always-apply skill primes so their
