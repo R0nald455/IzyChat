@@ -372,7 +372,9 @@ registration:
 balance:
   enabled: true
   startBalance: 1000000
-  autoRefillEnabled: true
+  # Renewal is now owned by izytesting (Django): it pushes the organization's balance through
+  # /api/internal/izytesting/balance-sync and OIDC claims. IzyChat's own refill would overwrite it.
+  autoRefillEnabled: false
   refillIntervalValue: 1
   refillIntervalUnit: months
   refillAmount: 1000000
