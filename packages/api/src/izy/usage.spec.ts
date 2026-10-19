@@ -79,6 +79,31 @@ describe('reportAgentUsage', () => {
     expect(getUserById).toHaveBeenCalledTimes(1);
   });
 
+  it('sends fractional credits unrounded and keeps tokens as integers', async () => {
+    configure();
+
+    reportAgentUsage({
+      user: 'user-1',
+      inputTokens: 10.4,
+      outputTokens: 5,
+      credits: 2700.456789,
+    });
+    await flush();
+
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body.credits).toBe(2700.456789);
+    expect(body.input_tokens).toBe(10);
+  });
+
+  it('never sends negative credits', async () => {
+    configure();
+
+    reportAgentUsage({ user: 'user-1', inputTokens: 10, outputTokens: 5, credits: -3.5 });
+    await flush();
+
+    expect(JSON.parse(calls[0].init.body as string).credits).toBe(0);
+  });
+
   it('omite `credits` cuando el costo no se pudo calcular por completo', async () => {
     configure();
 

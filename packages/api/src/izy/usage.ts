@@ -29,7 +29,7 @@ export interface AgentUsageReport {
   user: string;
   inputTokens: number;
   outputTokens: number;
-  /** Costo exacto en tokenCredits (USD × 1e6), tal como se cobró al saldo. */
+  /** Costo exacto en tokenCredits (USD × 1e6), tal como se cobró al saldo; se envía sin redondear. */
   credits?: number;
   model?: string;
   conversationId?: string;
@@ -202,7 +202,7 @@ export function reportAgentUsage(report: AgentUsageReport): void {
         email,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
-        ...(report.credits != null ? { credits: Math.max(Math.round(report.credits), 0) } : {}),
+        ...(report.credits != null ? { credits: Math.max(report.credits, 0) } : {}),
         ...(report.model ? { model: report.model } : {}),
         ...(report.conversationId ? { conversation_id: report.conversationId } : {}),
       });
