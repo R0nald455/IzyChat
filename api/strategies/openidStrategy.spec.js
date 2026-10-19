@@ -95,6 +95,7 @@ jest.mock('@librechat/api', () => {
     resolveAppConfigForUser: jest.fn(async (_getAppConfig, _user) => ({})),
   };
 });
+jest.mock('~/server/services/IzyBalanceSync', () => ({ syncBalance: jest.fn() }));
 jest.mock('~/models', () => ({
   findUser: jest.fn(),
   createUserIfAbsent: jest.fn(),
@@ -2573,6 +2574,53 @@ describe('setupOpenId', () => {
       expect(user.email).toBe('test@example.com');
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('OPENID_EMAIL_CLAIM="nonexistent_claim" not present in userinfo'),
+      );
+    });
+  });
+
+  describe('IzyBot credits claims', () => {
+    const { syncBalance } = require('~/server/services/IzyBalanceSync');
+    const withClaims = (extra) => ({
+      ...tokenset,
+      claims: () => ({ ...tokenset.claims(), ...extra }),
+    });
+
+    beforeEach(() => {
+      syncBalance.mockReset();
+      syncBalance.mockResolvedValue({ previous: 0, current: 5, replayed: false });
+    });
+
+    it('applies izybot_credits and org_uuid through the balance sync before updating the user', async () => {
+      const { user } = await validate(withClaims({ izybot_credits: 1500.25, org_uuid: 'org-1' }));
+
+      expect(syncBalance).toHaveBeenCalledTimes(1);
+      expect(syncBalance).toHaveBeenCalledWith({
+        email: 'test@example.com',
+        credits: 1500.25,
+        organizationUuid: 'org-1',
+        requestId: expect.stringContaining('org-1'),
+      });
+      expect(user.email).toBe('test@example.com');
+    });
+
+    it('does nothing when the claims are absent or malformed', async () => {
+      await validate(tokenset);
+      await validate(withClaims({ izybot_credits: 10 }));
+      await validate(withClaims({ org_uuid: 'org-1' }));
+      await validate(withClaims({ izybot_credits: '10', org_uuid: 'org-1' }));
+      expect(syncBalance).not.toHaveBeenCalled();
+    });
+
+    it('never fails the login when the sync throws, and logs a warning', async () => {
+      const { logger } = require('@librechat/data-schemas');
+      syncBalance.mockRejectedValue(new Error('boom'));
+
+      const { user } = await validate(withClaims({ izybot_credits: 10, org_uuid: 'org-1' }));
+
+      expect(user).toBeTruthy();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('IzyBot credits sync failed'),
+        expect.anything(),
       );
     });
   });

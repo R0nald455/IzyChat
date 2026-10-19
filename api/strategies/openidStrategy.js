@@ -38,6 +38,7 @@ const {
   createUserIfAbsent,
 } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
+const { syncBalance } = require('~/server/services/IzyBalanceSync');
 const getLogStores = require('~/cache/getLogStores');
 
 /**
@@ -558,6 +559,34 @@ async function applyOpenIdRoleSync({
 }
 
 /**
+ * IzyTesting adds `izybot_credits` (tokenCredits of the active organization) and `org_uuid` to
+ * the OIDC claims so the balance follows the organization at login. Best-effort: a failed
+ * sync is logged and never blocks the login.
+ * @param {Object} userinfo - Merged userinfo (id-token claims + UserInfo endpoint response)
+ * @param {string} email
+ */
+async function applyIzyBotCreditsClaims(userinfo, email) {
+  const credits = userinfo?.izybot_credits;
+  const organizationUuid = userinfo?.org_uuid;
+  if (typeof credits !== 'number' || typeof organizationUuid !== 'string' || !organizationUuid) {
+    return;
+  }
+  try {
+    await syncBalance({
+      email,
+      credits,
+      organizationUuid,
+      requestId: `oidc:${organizationUuid}:${userinfo.jti ?? userinfo.iat ?? Date.now()}`,
+    });
+  } catch (error) {
+    logger.warn('[openidStrategy] IzyBot credits sync failed; continuing login', {
+      code: error?.code,
+      message: error?.message,
+    });
+  }
+}
+
+/**
  * Process OpenID authentication tokenset and userinfo
  * This is the core logic extracted from the passport strategy callback
  * Can be reused by both the passport strategy and proxy authentication
@@ -815,6 +844,8 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
       user.avatar = imagePath ?? '';
     }
   }
+
+  await applyIzyBotCreditsClaims(userinfo, user.email);
 
   user = await updateUser(user._id, user);
 
