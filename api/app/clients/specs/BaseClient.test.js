@@ -65,6 +65,13 @@ jest.mock('~/models', () => ({
   releaseBalanceReservation: jest.fn(),
 }));
 
+jest.mock('~/server/services/IzyBalanceReconcile', () => ({
+  reconcileBalanceWithIzytesting: jest.fn().mockResolvedValue(undefined),
+}));
+const {
+  reconcileBalanceWithIzytesting,
+} = require('~/server/services/IzyBalanceReconcile');
+
 const {
   releaseBalanceReservation,
   reserveBalance,
@@ -2762,6 +2769,7 @@ describe('BaseClient', () => {
       TestClient.options.req = { config: { balance: { enabled: true } } };
 
       events = [];
+      reconcileBalanceWithIzytesting.mockReset().mockResolvedValue(undefined);
       getMultiplier.mockReturnValue(1);
       reserveBalance.mockImplementation(async () => {
         events.push('reserve');
@@ -2822,6 +2830,33 @@ describe('BaseClient', () => {
       await expect(TestClient.sendMessage('Hello', {})).rejects.toThrow('usage write failed');
 
       expect(events).toEqual(['reserve', 'completion', 'release']);
+    });
+
+    test('reconciles with IzyTesting before the balance is reserved', async () => {
+      reconcileBalanceWithIzytesting.mockImplementation(async () => {
+        events.push('reconcile');
+      });
+      TestClient.options.req = {
+        config: { balance: { enabled: true } },
+        user: { email: 'a@b.com' },
+      };
+
+      await TestClient.sendMessage('Hello', {});
+
+      expect(events.slice(0, 2)).toEqual(['reconcile', 'reserve']);
+      expect(reconcileBalanceWithIzytesting).toHaveBeenCalledWith({
+        userId: TestClient.user,
+        email: 'a@b.com',
+      });
+    });
+
+    test('blocks the run when a strict reconcile fails, without reserving or completing', async () => {
+      reconcileBalanceWithIzytesting.mockRejectedValue(new Error('izytesting unreachable'));
+
+      await expect(TestClient.sendMessage('Hello', {})).rejects.toThrow('izytesting unreachable');
+
+      expect(reserveBalance).not.toHaveBeenCalled();
+      expect(TestClient.sendCompletion).not.toHaveBeenCalled();
     });
 
     test('takes no reservation when the balance check refuses the request', async () => {

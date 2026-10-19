@@ -58,6 +58,7 @@ const {
   resolveUseResponsesApi,
 } = require('librechat-data-provider');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { reconcileBalanceWithIzytesting } = require('~/server/services/IzyBalanceReconcile');
 const { logViolation } = require('~/cache');
 const TextStream = require('./TextStream');
 const db = require('~/models');
@@ -1023,6 +1024,12 @@ class BaseClient {
         balanceConfig?.enabled &&
         supportsBalanceCheck[this.options.endpointType ?? this.options.endpoint]
       ) {
+        /** Django (IzyTesting) always prevails: align the local balance first so an
+         * organization switch is reflected before this run is admitted. */
+        await reconcileBalanceWithIzytesting({
+          userId: this.user,
+          email: this.options.req?.user?.email,
+        });
         const balanceAdmission = checkBalance(
           {
             req: this.options.req,
