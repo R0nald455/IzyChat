@@ -25,7 +25,10 @@ router.get('/check', requireJwtAuth, async (req, res) => {
     }
 
     if (req.authStrategy === 'openidJwt') {
-      return res.status(200).json({ valid: true });
+      return res.status(200).json({
+        valid: true,
+        organizationId: req.izyOrganizationId ?? null,
+      });
     }
 
     const activeCount = await db.countActiveSessions(userId);
@@ -33,7 +36,10 @@ router.get('/check', requireJwtAuth, async (req, res) => {
       return res.status(401).json({ message: 'Session revoked' });
     }
 
-    return res.status(200).json({ valid: true });
+    return res.status(200).json({
+      valid: true,
+      organizationId: req.izyOrganizationId ?? null,
+    });
   } catch (error) {
     logger.error('[izytesting-session/check] Error checking session', error);
     return res.status(500).json({ message: 'Error checking session' });

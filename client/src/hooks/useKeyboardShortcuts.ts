@@ -815,7 +815,7 @@ export function useShortcutActions(): ShortcutAction[] {
       { conversationId: convoId, isArchived: true },
       {
         onSuccess: () => {
-          newConversation();
+          newConversation({ abandonOpenChat: true });
           navigate('/c/new', { replace: true });
         },
         onError: () => {

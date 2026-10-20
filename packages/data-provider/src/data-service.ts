@@ -1631,7 +1631,10 @@ export function healthCheck(): Promise<string> {
   return request.get(endpoints.health());
 }
 
-export function checkIzyTestingSession(): Promise<{ valid: boolean }> {
+export function checkIzyTestingSession(): Promise<{
+  valid: boolean;
+  organizationId?: string | null;
+}> {
   return request.get(endpoints.izyTestingSessionCheck());
 }
 

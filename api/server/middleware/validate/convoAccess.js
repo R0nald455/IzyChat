@@ -43,7 +43,8 @@ const validateConvoAccess = async (req, res, next) => {
 
   const userId = req.user?.id ?? req.user?._id ?? '';
   const type = ViolationTypes.CONVO_ACCESS;
-  const key = `${isEnabled(USE_REDIS) ? namespace : ''}:${userId}:${conversationId}`;
+  const organizationId = req.izyOrganizationId;
+  const key = `${isEnabled(USE_REDIS) ? namespace : ''}:${userId}:${conversationId}:${organizationId ?? ''}`;
 
   try {
     if (cache) {
@@ -68,7 +69,12 @@ const validateConvoAccess = async (req, res, next) => {
       return next();
     }
 
-    if (conversation.user !== userId) {
+    const orgMismatch =
+      organizationId != null &&
+      organizationId !== '' &&
+      conversation.organizationId != null &&
+      conversation.organizationId !== organizationId;
+    if (conversation.user !== userId || orgMismatch) {
       const errorMessage = {
         type,
         error: 'User not authorized for this conversation',

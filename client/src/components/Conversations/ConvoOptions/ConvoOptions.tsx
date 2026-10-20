@@ -93,7 +93,7 @@ function ConvoOptions({
   const deleteMutation = useDeleteConversationMutation({
     onSuccess: () => {
       if (currentConvoId === conversationId || currentConvoId === 'new') {
-        newConversation();
+        newConversation({ abandonOpenChat: true });
         navigate('/c/new', { replace: true });
       }
       retainView();
@@ -159,7 +159,7 @@ function ConvoOptions({
             });
             const openConvoId = openConvoIdRef.current;
             if (!isArchived && (openConvoId === convoId || openConvoId === 'new')) {
-              newConversation();
+              newConversation({ abandonOpenChat: true });
               navigate('/c/new', { replace: true });
             }
             retainView();

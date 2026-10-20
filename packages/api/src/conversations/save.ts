@@ -16,6 +16,7 @@ export type ConversationWriteContext = Parameters<SaveConvo>[0];
 /** The request state a turn's conversation writes read and update. */
 export interface TurnConversationRequest {
   user?: { id?: string };
+  izyOrganizationId?: string | null;
   body?: { isTemporary?: boolean };
   config?: { interfaceConfig?: AppConfig['interfaceConfig'] };
   /** Server-captured creation time, stamped only when a write inserts the row. */
@@ -90,6 +91,10 @@ export function getConversationWriteContext(
       req?.body?.isTemporary,
     expiredAt: req?._agentEventBindingRetention?.expiredAt ?? resolved?.expiredAt ?? undefined,
     interfaceConfig: req?.config?.interfaceConfig,
+    organizationId:
+      req != null && Object.prototype.hasOwnProperty.call(req, 'izyOrganizationId')
+        ? req.izyOrganizationId
+        : undefined,
   };
 }
 
@@ -110,7 +115,7 @@ function getUnsetFields(
   agentOwned: boolean,
   preservedFields: ReadonlyArray<keyof TConversation> = [],
 ): Record<string, number> {
-  const kept = new Set(['spec', 'iconURL']);
+  const kept = new Set(['spec', 'iconURL', 'organizationId']);
   if (agentOwned) {
     kept.add('model');
   }

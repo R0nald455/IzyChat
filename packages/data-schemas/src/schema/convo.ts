@@ -37,6 +37,12 @@ const convoSchema: Schema<IConversation> = new Schema(
       index: true,
       meiliIndex: true,
     },
+    /** IzyTesting organization uuid. Conversation history is scoped by user + this field. */
+    organizationId: {
+      type: String,
+      index: true,
+      meiliIndex: true,
+    },
     messages: [{ type: Schema.Types.ObjectId, ref: 'Message' }],
     isTemporary: {
       type: Boolean,
@@ -469,6 +475,7 @@ convoSchema.index({ user: 1, pinned: 1, updatedAt: -1, _id: -1 });
  *  `updatedAt` indexes above can serve them: a compound index only provides the sort when the
  *  keys before it are pinned by equality, and those two pin `chatProjectId` and `pinned`. */
 convoSchema.index({ user: 1, updatedAt: -1, _id: -1 });
+convoSchema.index({ user: 1, organizationId: 1, updatedAt: -1, _id: -1 });
 
 convoSchema.index({ user: 1, isTemporary: 1, expiredAt: 1 });
 /** Owner-scoped child-thread cascade lookup used when a parent is deleted. */

@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import type * as t from '~/types';
+import { organizationOnInsert, organizationScope } from '~/utils/organizationScope';
 import logger from '~/config/winston';
 
 /**
@@ -32,7 +33,10 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
   deleteMemory: ({ userId, key, agentId }: t.DeleteMemoryParams) => Promise<t.MemoryResult>;
   setMemoryById: (params: t.SetMemoryByIdParams) => Promise<t.SetMemoryByIdResult>;
   deleteMemoryById: (params: t.MemoryByIdParams) => Promise<t.MemoryResult>;
-  getAllUserMemories: (userId: string | Types.ObjectId) => Promise<t.IMemoryEntryLean[]>;
+  getAllUserMemories: (
+    userId: string | Types.ObjectId,
+    organizationId?: string | null,
+  ) => Promise<t.IMemoryEntryLean[]>;
   getUserMemories: ({ userId, agentId }: t.GetUserMemoriesParams) => Promise<t.IMemoryEntryLean[]>;
   getFormattedMemories: ({
     userId,
@@ -50,6 +54,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
     value,
     tokenCount = 0,
     agentId,
+    organizationId,
   }: t.SetMemoryParams): Promise<t.MemoryResult> {
     try {
       if (key?.toLowerCase() === 'nothing') {
@@ -61,6 +66,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
         userId,
         key,
         ...partitionFilter(agentId),
+        ...organizationScope(organizationId),
       });
       if (existingMemory) {
         throw new Error('Memory with this key already exists');
@@ -72,6 +78,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
         value,
         tokenCount,
         ...(agentId ? { agentId } : {}),
+        ...organizationOnInsert(organizationId),
         updated_at: new Date(),
       });
 
@@ -92,6 +99,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
     value,
     tokenCount = 0,
     agentId,
+    organizationId,
   }: t.SetMemoryParams): Promise<t.MemoryResult> {
     try {
       if (key?.toLowerCase() === 'nothing') {
@@ -100,11 +108,12 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
 
       const MemoryEntry = mongoose.models.MemoryEntry;
       await MemoryEntry.findOneAndUpdate(
-        { userId, key, ...partitionFilter(agentId) },
+        { userId, key, ...partitionFilter(agentId), ...organizationScope(organizationId) },
         {
           value,
           tokenCount,
           ...(agentId ? { agentId } : {}),
+          ...organizationOnInsert(organizationId),
           updated_at: new Date(),
         },
         {
@@ -128,6 +137,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
     userId,
     key,
     agentId,
+    organizationId,
   }: t.DeleteMemoryParams): Promise<t.MemoryResult> {
     try {
       const MemoryEntry = mongoose.models.MemoryEntry;
@@ -135,6 +145,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
         userId,
         key,
         ...partitionFilter(agentId),
+        ...organizationScope(organizationId),
       });
       return { ok: !!result };
     } catch (error) {
@@ -152,6 +163,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
     value,
     tokenCount = 0,
     agentId,
+    organizationId,
   }: t.SetMemoryByIdParams): Promise<t.SetMemoryByIdResult> {
     try {
       if (!mongoose.Types.ObjectId.isValid(id) || key?.toLowerCase() === 'nothing') {
@@ -159,7 +171,12 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
       }
 
       const MemoryEntry = mongoose.models.MemoryEntry;
-      const recordFilter = { _id: id, userId, ...partitionFilter(agentId) };
+      const recordFilter = {
+        _id: id,
+        userId,
+        ...partitionFilter(agentId),
+        ...organizationScope(organizationId),
+      };
       const existingMemory = (await MemoryEntry.findOne(
         recordFilter,
       ).lean()) as t.IMemoryEntryLean | null;
@@ -172,6 +189,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
           userId,
           key,
           ...partitionFilter(agentId),
+          ...organizationScope(organizationId),
           _id: { $ne: existingMemory._id },
         });
         if (duplicate) {
@@ -203,6 +221,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
     userId,
     id,
     agentId,
+    organizationId,
   }: t.MemoryByIdParams): Promise<t.MemoryResult> {
     try {
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -214,6 +233,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
         _id: id,
         userId,
         ...partitionFilter(agentId),
+        ...organizationScope(organizationId),
       });
       return { ok: !!result };
     } catch (error) {
@@ -228,10 +248,14 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
    */
   async function getAllUserMemories(
     userId: string | Types.ObjectId,
+    organizationId?: string | null,
   ): Promise<t.IMemoryEntryLean[]> {
     try {
       const MemoryEntry = mongoose.models.MemoryEntry;
-      return (await MemoryEntry.find({ userId }).lean()) as t.IMemoryEntryLean[];
+      return (await MemoryEntry.find({
+        userId,
+        ...organizationScope(organizationId),
+      }).lean()) as t.IMemoryEntryLean[];
     } catch (error) {
       throw new Error(
         `Failed to get all memories: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -246,12 +270,14 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
   async function getUserMemories({
     userId,
     agentId,
+    organizationId,
   }: t.GetUserMemoriesParams): Promise<t.IMemoryEntryLean[]> {
     try {
       const MemoryEntry = mongoose.models.MemoryEntry;
       return (await MemoryEntry.find({
         userId,
         ...partitionFilter(agentId),
+        ...organizationScope(organizationId),
       }).lean()) as t.IMemoryEntryLean[];
     } catch (error) {
       throw new Error(
@@ -266,9 +292,10 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')): {
   async function getFormattedMemories({
     userId,
     agentId,
+    organizationId,
   }: t.GetFormattedMemoriesParams): Promise<t.FormattedMemoriesResult> {
     try {
-      const memories = await getUserMemories({ userId, agentId });
+      const memories = await getUserMemories({ userId, agentId, organizationId });
 
       if (!memories || memories.length === 0) {
         return {

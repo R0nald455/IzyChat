@@ -41,6 +41,7 @@ export default function useSelectAssistant(endpoint: AssistantsEndpoint) {
       newConversation({
         template: { ...(template as Partial<TConversation>) },
         preset: template as Partial<TPreset>,
+        abandonOpenChat: true,
       });
     },
     [endpoint, assistantMap, conversation, getDefaultConversation, newConversation],

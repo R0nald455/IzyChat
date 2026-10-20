@@ -59,6 +59,10 @@ export type ServerRequest = Request<unknown, unknown, RequestBody> & {
    *  Derived per request from the sealed decision and never persisted. */
   codeWorkspaceInheritance?: ReadonlyMap<string, string>;
   authStrategy?: string;
+  /** IzyTesting organization uuid for IzyBot history isolation. Unset when isolation
+   *  is off or the org has not been resolved yet; `null` only when IzyTesting confirmed
+   *  there is no default membership. */
+  izyOrganizationId?: string | null;
   /** Trusted snapshot used to keep a request-scoped override out of saved conversation defaults. */
   reasoningOverrideBase?: {
     key: TReasoningOverride['key'];

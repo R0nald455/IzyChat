@@ -212,7 +212,7 @@ export default function useChatOptions({
            *  Another chat opened since the click is left alone. */
           const openConvoId = openConvoIdRef.current;
           if (!isArchived && (openConvoId === conversationId || openConvoId === 'new')) {
-            newConversation();
+            newConversation({ abandonOpenChat: true });
             navigate('/c/new', { replace: true });
           }
         },

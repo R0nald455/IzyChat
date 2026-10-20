@@ -61,7 +61,7 @@ export function DeleteConversationDialog({
       setShowDeleteDialog(false);
       const openConvoId = getCurrentConversationId ? getCurrentConversationId() : currentConvoId;
       if (openConvoId === conversationId || openConvoId === 'new') {
-        newConversation();
+        newConversation({ abandonOpenChat: true });
         navigate('/c/new', { replace: true });
       }
       setMenuOpen?.(false);
