@@ -359,6 +359,7 @@
   "com_error_moderation": "El contenido enviado fue marcado por nuestro sistema de moderación por no alinearse con nuestras normas comunitarias. No es posible continuar con este tema. Si tiene otras preguntas o temas que desee explorar, edite su mensaje o inicie una nueva conversación.",
   "com_error_no_base_url": "No se encontró URL base. Por favor proporcione una y vuelva a intentarlo.",
   "com_error_no_user_key": "No se encontró ninguna clave. Por favor, proporcione una clave e inténtelo de nuevo.",
+  "com_error_openid_reauth_required": "Tu sesión de IzyBot expiró. Recarga la página o vuelve a iniciar sesión para continuar.",
   "com_error_refusal": "Respuesta rechazada por filtros de seguridad. Reescribe tu mensaje e inténtalo de nuevo. Si encuentras esto frecuentemente mientras usas Claude Sonnet 4.5 u Opus 4.1, puedes probar Sonnet 4, que tiene diferentes restricciones de uso.",
   "com_error_stream_expired": "El flujo de respuesta ha expirado o ya se completó. Por favor, inténtelo de nuevo.",
   "com_file_unknown": "Archivo Desconocido",

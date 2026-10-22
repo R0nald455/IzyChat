@@ -25,7 +25,13 @@ router.get('/check', requireJwtAuth, async (req, res) => {
     }
 
     if (req.authStrategy === 'openidJwt') {
-      return res.status(200).json({ valid: true });
+      /**
+       * The bearer (ID token) can outlive the server-side session that holds the
+       * IdP access token (expired or lost on restart); tell the client to run the
+       * refresh flow, which rebuilds it from the `refreshToken` cookie.
+       */
+      const refreshRequired = !req.user?.federatedTokens?.access_token;
+      return res.status(200).json({ valid: true, refreshRequired });
     }
 
     const activeCount = await db.countActiveSessions(userId);

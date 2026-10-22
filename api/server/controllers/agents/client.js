@@ -365,6 +365,10 @@ function getUserFacingRequestError(baseMessage, error, appConfig) {
   if (error?.name === 'ManualSummarizationSkippedError') {
     return JSON.stringify({ type: ErrorTypes.COMPACTION_SKIPPED, reason: error.reason });
   }
+  /** Raw text names an internal placeholder; the client shows localized sign-in guidance instead. */
+  if (error?.name === 'OpenIDReauthRequiredError') {
+    return JSON.stringify({ type: ErrorTypes.OPENID_REAUTH_REQUIRED });
+  }
   const protectionEnabled = hasModelBoundContentProtection(
     appConfig?.filters,
     appConfig?.messageFilter?.pii,

@@ -54,6 +54,8 @@ async function configureOpenId(app, appConfig) {
     secret: process.env.OPENID_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    /** Keeps `openidTokens` alive while the user is active (IzyTesting's /check poll counts). */
+    rolling: true,
     store: getLogStores(CacheKeys.OPENID_SESSION),
     cookie: {
       maxAge: sessionExpiry,

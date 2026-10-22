@@ -976,6 +976,15 @@ describe('Error — manual compaction', () => {
 
     expect(screen.getByText(catalog.com_error_compaction_failed)).toBeInTheDocument();
   });
+
+  it('renders sign-in guidance, not the internal placeholder, when OpenID reauth is required', () => {
+    const { container } = render(
+      <Error text={JSON.stringify({ type: ErrorTypes.OPENID_REAUTH_REQUIRED })} />,
+    );
+
+    expect(screen.getByText(catalog.com_error_openid_reauth_required)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/LIBRECHAT_OPENID/);
+  });
 });
 
 describe('Error — identity of the row an error part belongs to', () => {
