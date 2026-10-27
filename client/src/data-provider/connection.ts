@@ -87,6 +87,7 @@ export const useHealthCheck = (isAuthenticated = false) => {
  * tries a refresh; a 401 that still reaches here means the refreshed token is
  * revoked too, so `onRevoked` must end the session - otherwise every tick
  * would refresh again and the app would sit in an endless refresh loop.
+ * It also renews the server-side OpenID session when `/check` reports it gone.
  */
 export const useIzyTestingSessionGuard = (isAuthenticated = false, onRevoked?: () => void) => {
   const queryClient = useQueryClient();
@@ -148,6 +149,28 @@ export const useIzyTestingSessionGuard = (isAuthenticated = false, onRevoked?: (
       }
     };
 
+    const endSession = (reason: string) => {
+      revoked = true;
+      clearInterval(interval);
+      logger.log(reason);
+      onRevokedRef.current?.();
+    };
+
+    /**
+     * The server lost the OpenID tokens behind this bearer (session expiry or a
+     * restart); refreshing rebuilds them before the next message needs them.
+     * A failed refresh means IzyTesting no longer backs this session.
+     */
+    const recoverSession = () =>
+      dataService.recoverAuthSession().then(
+        (token) => {
+          if (!token) {
+            endSession('IzyBot session could not be renewed; logging out');
+          }
+        },
+        () => endSession('IzyBot session could not be renewed; logging out'),
+      );
+
     const checkSession = () => {
       if (inFlight || revoked) {
         return;
@@ -155,17 +178,17 @@ export const useIzyTestingSessionGuard = (isAuthenticated = false, onRevoked?: (
       inFlight = true;
       dataService
         .checkIzyTestingSession()
-        .then((payload) => {
-          applyOrganization(payload?.organizationId);
+        .then((response) => {
+          applyOrganization(response?.organizationId);
+          if (response?.refreshRequired === true) {
+            return recoverSession();
+          }
         })
         .catch((error) => {
           if (error?.response?.status !== 401) {
             return;
           }
-          revoked = true;
-          clearInterval(interval);
-          logger.log('IzyTesting session revoked; logging out');
-          onRevokedRef.current?.();
+          endSession('IzyTesting session revoked; logging out');
         })
         .finally(() => {
           inFlight = false;

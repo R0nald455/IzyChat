@@ -1634,8 +1634,14 @@ export function healthCheck(): Promise<string> {
 export function checkIzyTestingSession(): Promise<{
   valid: boolean;
   organizationId?: string | null;
+  refreshRequired?: boolean;
 }> {
   return request.get(endpoints.izyTestingSessionCheck());
+}
+
+/** Runs the shared (deduplicated) auth refresh; resolves to the new token or `null`. */
+export function recoverAuthSession(): Promise<string | null> {
+  return request.startAuthRecovery(false);
 }
 
 export function getUserTerms(): Promise<t.TUserTermsResponse> {
