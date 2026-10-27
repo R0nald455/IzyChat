@@ -138,7 +138,12 @@ router.get('/', async (req, res) => {
     let scopedMessageRead;
     const previewToolCalls = prepareToolCallPreviews(req, toolCallPreviewDeps);
     if (typeof conversationId === 'string') {
-      const ownershipRead = db.getConvoOwnership(user, conversationId);
+      const ownershipRead = db.getConvoOwnership(
+        user,
+        conversationId,
+        undefined,
+        req.izyOrganizationId,
+      );
       /** Client-facing reads never expose server-private fields such as `contextMeta`. */
       const messageRead = messageId
         ? db.getMessages({ conversationId, messageId, user }, CLIENT_MESSAGE_SELECT)
@@ -194,7 +199,13 @@ router.get('/', async (req, res) => {
 
       const messages = searchResults.hits || [];
 
-      const result = await db.getConvosQueried(req.user.id, messages, cursor, pageSize);
+      const result = await db.getConvosQueried(
+        req.user.id,
+        messages,
+        cursor,
+        pageSize,
+        req.izyOrganizationId,
+      );
 
       const messageIds = [];
       const cleanedMessages = [];

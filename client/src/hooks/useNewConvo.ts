@@ -45,6 +45,7 @@ import {
   scheduleRetainedFileDeletionRetry,
   retainFileDeletion,
   failedFileIdsFrom,
+  izyDiag,
   logger,
   setDocumentTitle,
 } from '~/utils';
@@ -121,6 +122,13 @@ const useNewConvo = (index = 0) => {
         disableFocus?: boolean,
         _disableParams?: boolean,
       ) => {
+        console.log('[IzyWipe] switchToConversation', {
+          href: typeof window !== 'undefined' ? window.location.href : undefined,
+          nextConversationId: conversation?.conversationId,
+          keepAddedConvos,
+          disableFocus,
+          stack: new Error().stack,
+        });
         const modelsConfig = modelsData ?? modelsQuery.data;
         const { endpoint = null } = conversation;
         const buildDefaultConversation = (endpoint === null || buildDefault) ?? false;
@@ -330,7 +338,41 @@ const useNewConvo = (index = 0) => {
       keepAddedConvos = false,
       keepComposerState = false,
       disableParams,
+      abandonOpenChat = false,
     }: NewConversationOptions = {}) {
+      const href = typeof window !== 'undefined' ? window.location.href : undefined;
+      const urlConvoMatch =
+        typeof window !== 'undefined' ? window.location.pathname.match(/\/c\/([^/?#]+)/) : null;
+      const urlConvoId = urlConvoMatch?.[1];
+      const destinationId = _template.conversationId ?? Constants.NEW_CONVO;
+      const resettingOpenChat =
+        (destinationId === Constants.NEW_CONVO || destinationId === '') &&
+        urlConvoId != null &&
+        urlConvoId !== Constants.NEW_CONVO;
+      console.log('[IzyWipe] newConversation', {
+        href,
+        templateConversationId: _template.conversationId,
+        keepAddedConvos,
+        keepComposerState,
+        buildDefault,
+        abandonOpenChat,
+        resettingOpenChat,
+        stack: new Error().stack,
+      });
+      izyDiag('newConversation', {
+        href,
+        templateConversationId: _template.conversationId,
+        keepAddedConvos,
+        keepComposerState,
+        buildDefault,
+        abandonOpenChat,
+        resettingOpenChat,
+        stack: new Error().stack,
+      });
+      if (resettingOpenChat && !abandonOpenChat) {
+        izyDiag('newConversation-blocked-reset', { destinationId, urlConvoId });
+        return;
+      }
       const nextConversationId = _template.conversationId ?? '';
       const keepsExistingDraft =
         keepComposerState ||

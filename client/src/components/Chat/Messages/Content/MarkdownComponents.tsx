@@ -8,8 +8,9 @@ import {
   resolveInlineMedia,
   toAbsoluteFilePath,
 } from '~/utils';
+import { useCodeBlockContext, useMediaContext, useTableExportContext } from '~/Providers';
 import Mermaid, { MermaidErrorBoundary } from '~/components/Messages/Content/Mermaid';
-import { useCodeBlockContext, useMediaContext } from '~/Providers';
+import TableExportMenu from '~/components/Messages/Content/TableExportMenu';
 import CodeBlock from '~/components/Messages/Content/CodeBlock';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import { useFileDownload } from '~/data-provider';
@@ -199,9 +200,17 @@ type TTableProps = {
 };
 
 export const table: React.ElementType = memo(function MarkdownTable({ children }: TTableProps) {
+  const tableRef = useRef<HTMLTableElement>(null);
+  const { getNextTableIndex } = useTableExportContext();
+  const tableIndexRef = useRef<number | null>(null);
+  if (tableIndexRef.current === null) {
+    tableIndexRef.current = getNextTableIndex();
+  }
+
   return (
-    <div className="markdown-table-wrapper w-full max-w-full">
-      <table>{children}</table>
+    <div className="markdown-table-wrapper group/table relative w-full max-w-full">
+      <TableExportMenu tableRef={tableRef} tableIndex={tableIndexRef.current} />
+      <table ref={tableRef}>{children}</table>
     </div>
   );
 });

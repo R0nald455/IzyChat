@@ -121,6 +121,26 @@ describe('seedTurnConversation', () => {
     expect(row).toMatchObject({ model: 'claude-sonnet', agent_id: 'agent_persisted' });
   });
 
+  it('keeps the organization scope on a later save', async () => {
+    const userId = new mongoose.Types.ObjectId().toString();
+    const conversationId = randomUUID();
+    const organizationId = 'org-123';
+    const req = { ...createRequest(userId), izyOrganizationId: organizationId };
+    await seedTurnConversation(store, seedFields(req, conversationId));
+
+    const ctx = getConversationWriteContext(req);
+    const { conversation } = await saveTurnConversation(store, {
+      ...seedFields(req, conversationId),
+      context: 'save.spec organization scope',
+      ctx,
+      savedMessageId: new mongoose.Types.ObjectId(),
+    });
+
+    expect(conversation).toMatchObject({ conversationId, organizationId });
+    const row = await store.getConvo(userId, conversationId, organizationId);
+    expect(row?.organizationId).toBe(organizationId);
+  });
+
   it('leaves an existing conversation to the message save', async () => {
     const userId = new mongoose.Types.ObjectId().toString();
     const conversationId = randomUUID();

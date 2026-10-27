@@ -35,13 +35,13 @@ services:
   # Antes era `stdio`: LibreChat lanzaba `npx -y @izytesting/izytesting-mcp` una
   # vez por usuario, con la API key de esa persona en el entorno. Un servicio
   # unico es lo que permite administrarlo de forma central; la identidad ya no
-  # va en el entorno sino en la cabecera de cada peticion (modo passthrough, el
-  # que trae por defecto el modo HTTP).
+  # va en el entorno del servicio (IZYTESTING_TOKEN); LibreChat solo manda la
+  # llave de porteria en Authorization.
   #
   # No publica puertos: solo se alcanza desde la red interna de compose, y
   # `mcpSettings.allowedAddresses` limita a que host puede hablar LibreChat.
-  # Corre el codigo del repo hermano, no el paquete de npm: el modo passthrough
-  # todavia no esta publicado. Cuando se publique, esto puede pasar a
+  # Corre el codigo local (o del repo hermano), no el paquete de npm. Cuando
+  # haga falta, esto puede pasar a
   # `npx -y --package=@izytesting/izytesting-mcp@<version> izytesting-mcp-http`
   # y el volumen sale.
   izytesting-mcp:
@@ -53,9 +53,11 @@ services:
     command: ["node", "bin/izytesting-mcp-http.js"]
     volumes:
       - type: bind
-        source: ../izytesting-mcp
+        source: ./izytesting-mcp
         target: /app
         read_only: true
+    env_file:
+      - ./izytesting-mcp/.env
     environment:
       IZYTESTING_URL: ${IZYTESTING_URL}
       # Secreto compartido con LibreChat: responde "este cliente es LibreChat",
@@ -63,14 +65,13 @@ services:
       IZYTESTING_HTTP_KEY: ${IZYTESTING_HTTP_KEY}
       IZYTESTING_HTTP_HOST: 0.0.0.0
       IZYTESTING_HTTP_PORT: "8787"
-      # Sin IZYTESTING_TOKEN a proposito: este servidor no tiene identidad
-      # propia, actua como quien llama.
+      # Token personal (izy_mcp_...) en izytesting-mcp/.env — un usuario por servicio.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   browser-mcp:
     build:
-      context: ../browser_mcp
+      context: ./browser_mcp
     image: browser-mcp:0.1.0
     container_name: browser-mcp
     init: true

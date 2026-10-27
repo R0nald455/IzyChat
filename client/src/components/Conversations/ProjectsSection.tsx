@@ -253,7 +253,7 @@ const ProjectItem = memo(
         } else {
           navigate(projectChatPath);
         }
-        newConversation({ template: { chatProjectId: project._id } });
+        newConversation({ template: { chatProjectId: project._id }, abandonOpenChat: true });
         toggleNav();
       },
       [

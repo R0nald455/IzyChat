@@ -43,8 +43,14 @@ const MemoryEntrySchema: Schema<IMemoryEntry> = new Schema({
     type: String,
     index: true,
   },
+  /** IzyTesting organization uuid; memories must not cross organizations. */
+  organizationId: {
+    type: String,
+    index: true,
+  },
 });
 
 MemoryEntrySchema.index({ userId: 1, agentId: 1, key: 1 });
+MemoryEntrySchema.index({ userId: 1, organizationId: 1, agentId: 1, key: 1 });
 
 export default MemoryEntrySchema;

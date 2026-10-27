@@ -23,7 +23,7 @@ export const ClearChats = () => {
       {
         onSuccess: () => {
           clearAllConversationStorage();
-          newConversation();
+          newConversation({ abandonOpenChat: true });
         },
       },
     );

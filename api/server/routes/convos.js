@@ -64,6 +64,16 @@ const {
 const getLogStores = require('~/cache/getLogStores');
 const db = require('~/models');
 
+function izyOrganizationFilter(organizationId) {
+  if (organizationId === undefined) {
+    return {};
+  }
+  if (!organizationId) {
+    return { organizationId: { $in: [] } };
+  }
+  return { organizationId };
+}
+
 const assistantClients = {
   [EModelEndpoint.azureAssistants]: require('~/server/services/Endpoints/azureAssistants'),
   [EModelEndpoint.assistants]: require('~/server/services/Endpoints/assistants'),
@@ -225,6 +235,7 @@ router.get('/', async (req, res) => {
       sortBy,
       sortDirection,
       projectId,
+      organizationId: req.izyOrganizationId,
       ...filters,
     });
     res.status(200).json(result);
@@ -259,7 +270,7 @@ router.get('/:parentConversationId/subagents/:threadId', subagentThreadViewHandl
 
 router.get('/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
-  const convo = await db.getConvo(req.user.id, conversationId);
+  const convo = await db.getConvo(req.user.id, conversationId, req.izyOrganizationId);
 
   if (convo && convo.subagentThread == null) {
     res.status(200).json(convo);
@@ -515,6 +526,7 @@ router.delete('/', configMiddleware, async (req, res) => {
       await subagentThreadTaskStore.cancelPlan(cancellationPlan);
       dbResponse = await db.deleteConvos(req.user.id, filter, {
         allowEmpty: true,
+        organizationId: req.izyOrganizationId,
         beforeDelete: async (conversationIds) => {
           await checkpointDeletion.remember(conversationIds);
           await confirmAgentGenerationsDrained(req.user.id, conversationIds, [], tenantId);
@@ -604,8 +616,20 @@ router.delete('/all', configMiddleware, async (req, res) => {
     const fencedDeletion = await withAgentOwnerDeletionFence(
       req.user.id,
       tenantId,
-      () => deleteOwnerConversationPersistence(req.user.id, {}, tenantId, checkpointer),
-      () => deleteOwnerConversationPersistence(req.user.id, {}, tenantId, checkpointer),
+      () =>
+        deleteOwnerConversationPersistence(
+          req.user.id,
+          izyOrganizationFilter(req.izyOrganizationId),
+          tenantId,
+          checkpointer,
+        ),
+      () =>
+        deleteOwnerConversationPersistence(
+          req.user.id,
+          izyOrganizationFilter(req.izyOrganizationId),
+          tenantId,
+          checkpointer,
+        ),
     );
     const dbResponse = fencedDeletion.result;
     await db.deleteToolCalls(req.user.id);
@@ -642,6 +666,7 @@ router.post('/archive', validateConvoAccess, async (req, res) => {
         isTemporary: req?.resolvedConversation?.isTemporary,
         expiredAt: req?.resolvedConversation?.expiredAt,
         interfaceConfig: req?.config?.interfaceConfig,
+        organizationId: req.izyOrganizationId,
       },
       { conversationId, isArchived },
       {
@@ -691,7 +716,12 @@ router.post('/pin', validateConvoAccess, async (req, res) => {
   }
 
   try {
-    const dbResponse = await db.setConvoPinned(req.user.id, conversationId, pinned);
+    const dbResponse = await db.setConvoPinned(
+      req.user.id,
+      conversationId,
+      pinned,
+      req.izyOrganizationId,
+    );
 
     if (!dbResponse) {
       return res.status(404).json({ error: 'Conversation not found' });

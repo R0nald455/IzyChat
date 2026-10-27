@@ -10,6 +10,7 @@ export interface IMemoryEntry extends Document {
   tokenCount?: number;
   updated_at?: Date;
   tenantId?: string;
+  organizationId?: string;
 }
 
 export interface IMemoryEntryLean {
@@ -20,6 +21,7 @@ export interface IMemoryEntryLean {
   agentId?: string;
   tokenCount?: number;
   updated_at?: Date;
+  organizationId?: string;
   __v?: number;
 }
 
@@ -31,18 +33,21 @@ export interface SetMemoryParams {
   tokenCount?: number;
   /** Agent partition; omit for the shared personal pool */
   agentId?: string;
+  organizationId?: string | null;
 }
 
 export interface DeleteMemoryParams {
   userId: string | Types.ObjectId;
   key: string;
   agentId?: string;
+  organizationId?: string | null;
 }
 
 export interface MemoryByIdParams {
   userId: string | Types.ObjectId;
   id: string;
   agentId?: string;
+  organizationId?: string | null;
 }
 
 export interface SetMemoryByIdParams extends MemoryByIdParams {
@@ -55,11 +60,13 @@ export interface SetMemoryByIdParams extends MemoryByIdParams {
 export interface GetUserMemoriesParams {
   userId: string | Types.ObjectId;
   agentId?: string;
+  organizationId?: string | null;
 }
 
 export interface GetFormattedMemoriesParams {
   userId: string | Types.ObjectId;
   agentId?: string;
+  organizationId?: string | null;
 }
 
 // Result interfaces

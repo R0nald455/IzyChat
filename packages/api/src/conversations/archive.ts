@@ -11,7 +11,7 @@ export function createArchiveAllHandler(
 ): (req: ServerRequest, res: Response) => Promise<Response> {
   return async function archiveAllHandler(req: ServerRequest, res: Response): Promise<Response> {
     try {
-      const result = await deps.archiveAllConvos(req.user!.id);
+      const result = await deps.archiveAllConvos(req.user!.id, req.izyOrganizationId);
       return res.status(200).json(result);
     } catch (error) {
       logger.error('Error archiving all conversations', error);

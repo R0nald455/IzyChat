@@ -36,6 +36,7 @@ export default function useSelectAgent() {
           template: { ...(template as Partial<TConversation>) },
           preset: template as Partial<TPreset>,
           keepComposerState,
+          abandonOpenChat: true,
         });
         return;
       }
@@ -59,6 +60,7 @@ export default function useSelectAgent() {
         template: currentConvo,
         preset: template as Partial<TPreset>,
         keepComposerState,
+        abandonOpenChat: template.conversationId === Constants.NEW_CONVO,
       });
     },
     [getConversation, getDefaultConversation, newConversation],

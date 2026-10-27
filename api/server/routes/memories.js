@@ -136,7 +136,7 @@ const withAgentNames = async (memories, user) => {
  */
 router.get('/', checkMemoryRead, configMiddleware, async (req, res) => {
   try {
-    const memories = await getAllUserMemories(req.user.id);
+    const memories = await getAllUserMemories(req.user.id, req.izyOrganizationId);
     const projectedMemories = projectStoredMemories(memories, req.config?.filters);
 
     const sortedMemories = (await withAgentNames(projectedMemories, req.user)).sort(
@@ -219,7 +219,11 @@ router.post('/', createMemoryMiddleware, async (req, res) => {
   try {
     const tokenCount = Tokenizer.getTokenCount(value, 'o200k_base');
 
-    const memories = await getUserMemories({ userId: req.user.id, agentId });
+    const memories = await getUserMemories({
+      userId: req.user.id,
+      agentId,
+      organizationId: req.izyOrganizationId,
+    });
 
     const appConfig = req.config;
     const memoryConfig = appConfig?.memory;
@@ -243,13 +247,18 @@ router.post('/', createMemoryMiddleware, async (req, res) => {
       value: value.trim(),
       tokenCount,
       agentId,
+      organizationId: req.izyOrganizationId,
     });
 
     if (!result.ok) {
       return res.status(500).json({ error: 'Failed to create memory.' });
     }
 
-    const updatedMemories = await getUserMemories({ userId: req.user.id, agentId });
+    const updatedMemories = await getUserMemories({
+      userId: req.user.id,
+      agentId,
+      organizationId: req.izyOrganizationId,
+    });
     const newMemory = updatedMemories.find((m) => m.key === key.trim());
 
     res.status(201).json({ created: true, memory: newMemory });
@@ -357,7 +366,11 @@ router.patch('/:key', updateMemoryMiddleware, async (req, res) => {
   try {
     const tokenCount = Tokenizer.getTokenCount(value, 'o200k_base');
 
-    const memories = await getUserMemories({ userId: req.user.id, agentId });
+    const memories = await getUserMemories({
+      userId: req.user.id,
+      agentId,
+      organizationId: req.izyOrganizationId,
+    });
     const existingMemory = memories.find((m) => m.key === urlKey);
 
     if (!existingMemory) {
@@ -376,13 +389,19 @@ router.patch('/:key', updateMemoryMiddleware, async (req, res) => {
         value,
         tokenCount,
         agentId,
+        organizationId: req.izyOrganizationId,
       });
 
       if (!createResult.ok) {
         return res.status(500).json({ error: 'Failed to create new memory.' });
       }
 
-      const deleteResult = await deleteMemory({ userId: req.user.id, key: urlKey, agentId });
+      const deleteResult = await deleteMemory({
+        userId: req.user.id,
+        key: urlKey,
+        agentId,
+        organizationId: req.izyOrganizationId,
+      });
       if (!deleteResult.ok) {
         return res.status(500).json({ error: 'Failed to delete old memory.' });
       }
@@ -393,6 +412,7 @@ router.patch('/:key', updateMemoryMiddleware, async (req, res) => {
         value,
         tokenCount,
         agentId,
+        organizationId: req.izyOrganizationId,
       });
 
       if (!result.ok) {
@@ -400,7 +420,11 @@ router.patch('/:key', updateMemoryMiddleware, async (req, res) => {
       }
     }
 
-    const updatedMemories = await getUserMemories({ userId: req.user.id, agentId });
+    const updatedMemories = await getUserMemories({
+      userId: req.user.id,
+      agentId,
+      organizationId: req.izyOrganizationId,
+    });
     const updatedMemory = updatedMemories.find((m) => m.key === newKey);
 
     res.json({ updated: true, memory: updatedMemory });
@@ -419,7 +443,12 @@ router.delete('/:key', checkMemoryDelete, validateDeletedAgentPartition, async (
   const agentId = getMemoryAgentIdParam(req.query.agentId);
 
   try {
-    const result = await deleteMemory({ userId: req.user.id, key, agentId });
+    const result = await deleteMemory({
+      userId: req.user.id,
+      key,
+      agentId,
+      organizationId: req.izyOrganizationId,
+    });
 
     if (!result.ok) {
       return res.status(404).json({ error: 'Memory not found.' });

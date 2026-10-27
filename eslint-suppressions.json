@@ -272,6 +272,11 @@
       "count": 1
     }
   },
+  "client/src/components/Chat/Input/SendButton.tsx": {
+    "shadcn/no-restyle": {
+      "count": 3
+    }
+  },
   "client/src/components/Chat/Input/SkillsCommand.tsx": {
     "shadcn/no-restyle": {
       "count": 6
@@ -302,7 +307,7 @@
       "count": 1
     },
     "shadcn/no-restyle": {
-      "count": 16
+      "count": 10
     },
     "shadcn/require-static-classes": {
       "count": 2
