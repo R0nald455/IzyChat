@@ -133,8 +133,8 @@ cache: true
 
 
 mcpServers:
-  # Integración administrada: MCP HTTP compartido. LibreChat manda la llave de
-  # portería; el token personal de IzyTesting (`izy_mcp_`) va en izytesting-mcp/.env.
+  # Integración administrada: una instancia HTTP. La llave solo dice que el
+  # cliente es LibreChat. La identidad es el access token OIDC de quien llama.
   izytesting:
     title: IzyTesting
     description: Requerimientos, casos, bugs y automatización de IzyTesting
@@ -146,7 +146,8 @@ mcpServers:
     timeout: 120000
     initTimeout: 30000
     headers:
-      Authorization: "Bearer ${IZYTESTING_HTTP_KEY}"
+      X-Izy-Mcp-Key: "${IZYTESTING_HTTP_KEY}"
+      Authorization: "Bearer {{LIBRECHAT_OPENID_ACCESS_TOKEN}}"
 
   browser:
     title: Browser
