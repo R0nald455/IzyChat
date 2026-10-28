@@ -52,11 +52,11 @@ services:
     command: ["node", "bin/izytesting-mcp-http.js"]
     volumes:
       - type: bind
-        source: ./izytesting-mcp
+        source: ../izytesting-mcp
         target: /app
         read_only: true
     env_file:
-      - ./izytesting-mcp/.env
+      - ../izytesting-mcp/.env
     environment:
       IZYTESTING_URL: ${IZYTESTING_URL}
       # Secreto compartido con LibreChat: responde "este cliente es LibreChat",
