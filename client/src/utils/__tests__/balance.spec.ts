@@ -70,11 +70,17 @@ describe('summarizeBalance', () => {
 });
 
 describe('formatBalanceAmount', () => {
-  it('formats credits without hiding fractional differences', () => {
-    expect(formatBalanceAmount(3_100_000, 'credits')).toBe('3,100,000');
-    expect(formatBalanceAmount(100.4, 'credits')).toBe('100.4');
-    expect(formatBalanceAmount(100.3, 'credits')).toBe('100.3');
-    expect(formatBalanceAmount(12_480.656, 'credits')).toBe('12,480.66');
+  it('formats credits as whole numbers with a dot as thousands separator', () => {
+    expect(formatBalanceAmount(3_100_000, 'credits')).toBe('3.100.000');
+    expect(formatBalanceAmount(999, 'credits')).toBe('999');
+    expect(formatBalanceAmount(1_500, 'credits')).toBe('1.500');
+    expect(formatBalanceAmount(0, 'credits')).toBe('0');
+  });
+
+  it('truncates fractional credits instead of rounding them up', () => {
+    expect(formatBalanceAmount(12_480.656, 'credits')).toBe('12.480');
+    expect(formatBalanceAmount(1_500_000.99, 'credits')).toBe('1.500.000');
+    expect(formatBalanceAmount(0.4, 'credits')).toBe('0');
   });
 
   it('converts credits to money at one million credits per dollar', () => {
