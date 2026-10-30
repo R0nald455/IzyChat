@@ -340,6 +340,7 @@
   "com_endpoint_verbosity": "Nivel de detalle",
   "com_error_endpoint_models_not_loaded": "Los modelos para {{0}} no pudieron cargarse. Por favor actualiza la página e inténtalo de nuevo.",
   "com_error_expired_user_key": "La clave proporcionada para {{0}} expiró en {{1}}. Por favor, proporcione una clave nueva e inténtelo de nuevo.",
+  "com_error_token_balance": "No cuentas con créditos suficientes para realizar esta solicitud. Contacta al administrador de tu organización para verificar tu saldo e inténtalo nuevamente.",
   "com_error_files_dupe": "Se detectó un archivo duplicado.",
   "com_error_files_empty": "No se permiten archivos vacíos.",
   "com_error_files_limit_reached": "Límite de archivos alcanzado: {{0}} archivos",

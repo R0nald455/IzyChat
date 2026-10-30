@@ -38,8 +38,7 @@ export function LangSetting() {
   const [langcode, setLangcode] = useRecoilState(store.lang);
   const onChange = useCallback(
     (value: string) => {
-      const userLang =
-        value === 'auto' ? navigator.language || navigator.languages?.[0] || 'en-US' : value;
+      const userLang = value;
       requestAnimationFrame(() => {
         document.documentElement.lang = userLang;
       });
