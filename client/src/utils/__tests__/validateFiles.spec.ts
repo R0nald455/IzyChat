@@ -1,7 +1,12 @@
 import { megabyte, fileConfig as defaultFileConfig } from 'librechat-data-provider';
 import type { EndpointFileConfig, FileConfig } from 'librechat-data-provider';
 import type { ExtendedFile } from '~/common';
-import { validateFiles, validateFileSizes, partitionUploads } from '../files';
+import {
+  validateFiles,
+  validateFileSizes,
+  partitionUploads,
+  partitionUploadsByType,
+} from '../files';
 
 const supportedMimeTypes = defaultFileConfig.endpoints.default.supportedMimeTypes;
 
@@ -72,7 +77,9 @@ describe('validateFiles', () => {
     });
 
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith('Unsupported file type: text/plain');
+    expect(setError).toHaveBeenCalledWith('com_error_files_unsupported_type', {
+      0: 'text/plain',
+    });
   });
 
   it('accepts a type the restricted endpoint allowlist permits in unified mode', () => {
@@ -120,7 +127,7 @@ describe('validateFiles', () => {
     ];
     const result = validateFiles({ files, fileList, setError, endpointFileConfig, fileConfig });
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith('File limit reached: 3 files');
+    expect(setError).toHaveBeenCalledWith('com_error_files_limit_reached', { 0: '3' });
   });
 
   it('allows upload when exactly at fileLimit boundary', () => {
@@ -138,7 +145,9 @@ describe('validateFiles', () => {
     const fileList = [makeFile('data.xyz', 'application/x-unknown', 1024)];
     const result = validateFiles({ files, fileList, setError, endpointFileConfig, fileConfig });
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith('Unsupported file type: application/x-unknown');
+    expect(setError).toHaveBeenCalledWith('com_error_files_unsupported_type', {
+      0: 'application/x-unknown',
+    });
   });
 
   it('normalizes Windows ZIP MIME type before validation', () => {
@@ -157,13 +166,13 @@ describe('validateFiles', () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it('rejects when file size equals fileSizeLimit (>= comparison)', () => {
+  it('allows file when size equals fileSizeLimit', () => {
     const limit = 5 * megabyte;
     endpointFileConfig = makeEndpointConfig({ fileSizeLimit: limit });
     const fileList = [makeFile('exact.pdf', 'application/pdf', limit)];
     const result = validateFiles({ files, fileList, setError, endpointFileConfig, fileConfig });
-    expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith(`File size limit exceeded: ${limit / megabyte} MB`);
+    expect(result).toBe(true);
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it('allows file just under fileSizeLimit', () => {
@@ -205,13 +214,15 @@ describe('validateFiles', () => {
 
     const result = validateFileSizes({
       files,
-      fileList: [makeFile('photo.jpg', 'image/jpeg', limit)],
+      fileList: [makeFile('photo.jpg', 'image/jpeg', limit + 1)],
       setError,
       endpointFileConfig,
     });
 
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith(`File size limit exceeded: ${limit / megabyte} MB`);
+    expect(setError).toHaveBeenCalledWith('com_error_files_size_limit', {
+      0: `${limit / megabyte}`,
+    });
   });
 
   it('rejects when totalSizeLimit would be exceeded', () => {
@@ -221,7 +232,9 @@ describe('validateFiles', () => {
     const fileList = [makeFile('big.pdf', 'application/pdf', 5 * megabyte)];
     const result = validateFiles({ files, fileList, setError, endpointFileConfig, fileConfig });
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith(`Total file size limit exceeded: ${limit / megabyte} MB`);
+    expect(setError).toHaveBeenCalledWith('com_error_files_total_size_limit', {
+      0: `${limit / megabyte}`,
+    });
   });
 
   it('allows when totalSizeLimit is exactly met', () => {
@@ -248,7 +261,9 @@ describe('validateFiles', () => {
     });
 
     expect(result).toBe(false);
-    expect(setError).toHaveBeenCalledWith(`Total file size limit exceeded: ${limit / megabyte} MB`);
+    expect(setError).toHaveBeenCalledWith('com_error_files_total_size_limit', {
+      0: `${limit / megabyte}`,
+    });
   });
 
   it('rejects duplicate files', () => {
@@ -284,7 +299,33 @@ describe('validateFiles', () => {
     files = new Map([['f1', makeExtendedFile({ file_id: 'f1', filename: 'existing.pdf' })]]);
     const fileList = [makeFile('huge.pdf', 'application/pdf', limit)];
     validateFiles({ files, fileList, setError, endpointFileConfig, fileConfig });
-    expect(setError).toHaveBeenCalledWith('File limit reached: 1 files');
+    expect(setError).toHaveBeenCalledWith('com_error_files_limit_reached', { 0: '1' });
+  });
+});
+
+describe('partitionUploadsByType', () => {
+  let endpointFileConfig: EndpointFileConfig;
+  const fileConfig: FileConfig | null = null;
+
+  beforeEach(() => {
+    endpointFileConfig = makeEndpointConfig();
+  });
+
+  it('keeps supported files and skips blocked executables in the same selection', () => {
+    const fileList = [
+      makeFile('reporte.pdf', 'application/pdf', 1024),
+      makeFile('script.js', 'text/javascript', 1024),
+      makeFile('instalador.exe', 'application/x-msdownload', 1024),
+    ];
+
+    const { keptIndices, skipped } = partitionUploadsByType({
+      fileList,
+      endpointFileConfig,
+      fileConfig,
+    });
+
+    expect(keptIndices).toEqual([0, 1]);
+    expect(skipped).toEqual([{ index: 2, file: fileList[2], reason: 'securityBlocked' }]);
   });
 });
 

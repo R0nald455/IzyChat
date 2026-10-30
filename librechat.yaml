@@ -1096,7 +1096,21 @@ endpoints:
 #     turns: 2 # Keep the newest complete user/assistant turns outside the summary
 #     tokens: 2000 # Also preserve up to this many recent tokens
 
-# fileConfig:
+fileConfig:
+  serverFileSizeLimit: 97
+  endpoints:
+    default:
+      fileSizeLimit: 97
+      totalSizeLimit: 97
+    agents:
+      fileSizeLimit: 97
+      totalSizeLimit: 97
+    openAI:
+      fileSizeLimit: 97
+      totalSizeLimit: 97
+    anthropic:
+      fileSizeLimit: 97
+      totalSizeLimit: 97
 #   endpoints:
 #     assistants:
 #       fileLimit: 5
@@ -1107,12 +1121,9 @@ endpoints:
 #         - "application/pdf"
 #     openAI:
 #       disabled: true  # Disables file uploading to the OpenAI endpoint
-#     default:
-#       totalSizeLimit: 20
 #     YourCustomEndpointName:
 #       fileLimit: 2
 #       fileSizeLimit: 5
-#   serverFileSizeLimit: 100  # Global server file size limit in MB
 #   avatarSizeLimit: 2  # Limit for user avatar image size in MB
 #   imageGeneration: # Image Gen settings, either percentage or px
 #     percentage: 100
@@ -1411,4 +1422,4 @@ modelSpecs:
       default: true
       preset:
         endpoint: agents
-        agent_id: agent_KvOvw6bSLyV6rSViL8tJ2
+        agent_id: agent_SBRXYh4zeNsi5y_JDOX7k

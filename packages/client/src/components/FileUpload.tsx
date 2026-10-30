@@ -1,6 +1,7 @@
 import React, { forwardRef } from 'react';
 
 type FileUploadProps = {
+  accept?: string;
   className?: string;
   onClick?: () => void;
   children: React.ReactNode;
@@ -9,7 +10,7 @@ type FileUploadProps = {
 
 const FileUpload: React.ForwardRefExoticComponent<
   FileUploadProps & React.RefAttributes<HTMLInputElement>
-> = forwardRef<HTMLInputElement, FileUploadProps>(({ children, handleFileChange }, ref) => {
+> = forwardRef<HTMLInputElement, FileUploadProps>(({ accept, children, handleFileChange }, ref) => {
   return (
     <>
       {children}
@@ -17,6 +18,7 @@ const FileUpload: React.ForwardRefExoticComponent<
         ref={ref}
         multiple
         type="file"
+        accept={accept}
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />

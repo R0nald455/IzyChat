@@ -22,17 +22,20 @@ import type {
 } from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import type { SkippedUpload, UploadPartition } from '~/utils';
+import type { SetFileValidationError } from '~/utils/files';
 import type { ExtendedFile, FileSetter } from '~/common';
 import {
   logger,
   validateFiles,
   cachePreview,
   partitionUploads,
+  partitionUploadsByType,
   validateFileSizes,
   validateFileLimit,
   getCachedPreview,
   removePreviewEntry,
   validateFileDuplicates,
+  getAllowedFormatCategoryKeys,
 } from '~/utils';
 import { useGetFileConfig, useUploadFileMutation } from '~/data-provider';
 import useAgentUploadTarget from '~/hooks/Agents/useAgentUploadTarget';
@@ -169,7 +172,13 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     ephemeralAgentByConvoId(conversation?.conversationId ?? Constants.NEW_CONVO),
   );
   const { isTemporary } = useChatSettings();
-  const setError = (error: string) => setErrors((prevErrors) => [...prevErrors, error]);
+  const setValidationError: SetFileValidationError = useCallback(
+    (key, options) => {
+      const message = localize(key as TranslationKeys, options);
+      setErrors((prevErrors) => [...prevErrors, message || key]);
+    },
+    [localize],
+  );
 
   /** Names the files left out of a batch that is otherwise still uploading. Callers report a batch
    * rejected in full through the existing all-or-nothing errors instead. */
@@ -182,23 +191,56 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     }
     const duplicates: string[] = [];
     const oversized: string[] = [];
+    const securityBlocked: string[] = [];
+    const unsupported: string[] = [];
+    const unknownType: string[] = [];
     for (const { file, reason } of skipped) {
       if (reason === 'duplicate') {
         duplicates.push(file.name);
         continue;
       }
-      oversized.push(file.name);
+      if (reason === 'fileSize') {
+        oversized.push(file.name);
+        continue;
+      }
+      if (reason === 'securityBlocked') {
+        securityBlocked.push(file.name);
+        continue;
+      }
+      if (reason === 'unknownType') {
+        unknownType.push(file.name);
+        continue;
+      }
+      unsupported.push(file.name);
     }
+    const formatsHint = getAllowedFormatCategoryKeys(endpointFileConfig.supportedMimeTypes)
+      .map((key) => localize(key as TranslationKeys))
+      .join(', ');
     if (duplicates.length > 0) {
-      setError(localize('com_error_files_skipped_dupe', { 0: duplicates.join(', ') }));
+      setValidationError('com_error_files_skipped_dupe', { 0: duplicates.join(', ') });
     }
     if (oversized.length > 0) {
-      setError(
-        localize('com_error_files_skipped_size', {
-          0: `${(endpointFileConfig.fileSizeLimit ?? 0) / megabyte}`,
-          1: oversized.join(', '),
-        }),
-      );
+      setValidationError('com_error_files_skipped_size', {
+        0: `${(endpointFileConfig.fileSizeLimit ?? 0) / megabyte}`,
+        1: oversized.join(', '),
+      });
+    }
+    if (securityBlocked.length > 0) {
+      setValidationError('com_error_files_skipped_security', {
+        0: securityBlocked.join(', '),
+        1: formatsHint,
+      });
+    }
+    if (unsupported.length > 0) {
+      setValidationError('com_error_files_skipped_type', {
+        0: unsupported.join(', '),
+        1: formatsHint,
+      });
+    }
+    if (unknownType.length > 0) {
+      setValidationError('com_error_files_skipped_unknown_type', {
+        0: unknownType.join(', '),
+      });
     }
   };
   const { addFile, replaceFile, updateFileById, deleteFileById } = useUpdateFiles(fileSetter);
@@ -232,9 +274,8 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
 
   const displayToast = useCallback(() => {
     if (errors.length > 1) {
-      // TODO: this should not be a dynamic localize input!!
       const errorList = Array.from(new Set(errors))
-        .map((e, i) => `${i > 0 ? '• ' : ''}${localize(e as TranslationKeys) || e}\n`)
+        .map((e, i) => `${i > 0 ? '• ' : ''}${e}\n`)
         .join('');
       showToast({
         message: errorList,
@@ -242,17 +283,15 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         duration: 5000,
       });
     } else if (errors.length === 1) {
-      // TODO: this should not be a dynamic localize input!!
-      const message = localize(errors[0] as TranslationKeys) || errors[0];
       showToast({
-        message,
+        message: errors[0],
         status: 'error',
         duration: 5000,
       });
     }
 
     setErrors([]);
-  }, [errors, showToast, localize]);
+  }, [errors, showToast]);
 
   const debouncedDisplayToast = useMemo(() => debounce(displayToast, 250), [displayToast]);
 
@@ -341,7 +380,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         } else if (error?.response?.data?.message) {
           errorMessage = error.response.data.message;
         }
-        setError(errorMessage);
+        setValidationError(errorMessage);
         uploadLifecycle?.onError?.(file_id);
       },
     },
@@ -488,7 +527,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       uploadScope.recent.delete(extendedFile.file_id);
       removePreviewEntry(extendedFile.file_id);
       URL.revokeObjectURL(preview);
-      setError('com_error_files_process');
+      setValidationError('com_error_files_process');
     };
     img.src = preview;
   };
@@ -541,12 +580,43 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       endpointFileConfig,
       skipSizeValidation: true,
     });
-    /** Nothing survived, so the whole selection is rejected and the untouched list reports it
-     * through the usual checks in their usual order. */
-    const acceptedFileList =
-      selection.keptIndices.length > 0
-        ? selection.keptIndices.map((index) => fileList[index])
-        : fileList;
+    const candidateIndices =
+      selection.keptIndices.length > 0 ? selection.keptIndices : fileList.map((_, index) => index);
+    const candidateFiles = candidateIndices.map((index) => fileList[index]);
+
+    const typePartition = partitionUploadsByType({
+      fileList: candidateFiles,
+      endpointFileConfig,
+      toolResource: _toolResource,
+      fileConfig: currentFileConfig,
+    });
+
+    for (const keptIndex of typePartition.keptIndices) {
+      const originalIndex = candidateIndices[keptIndex];
+      fileList[originalIndex] = candidateFiles[keptIndex];
+    }
+
+    const typeSkipped: SkippedUpload[] = typePartition.skipped.map((entry) => ({
+      index: candidateIndices[entry.index],
+      file: candidateFiles[entry.index],
+      reason: entry.reason,
+    }));
+
+    const mimeKeptIndices = typePartition.keptIndices.map((index) => candidateIndices[index]);
+    if (mimeKeptIndices.length === 0 && typeSkipped.length > 0) {
+      reportSkippedUploads([...selection.skipped, ...typeSkipped], endpointFileConfig);
+      setFilesLoading(false);
+      return false;
+    }
+
+    let acceptedFileList: File[];
+    if (mimeKeptIndices.length > 0) {
+      acceptedFileList = mimeKeptIndices.map((index) => fileList[index]);
+    } else if (selection.keptIndices.length > 0) {
+      acceptedFileList = [];
+    } else {
+      acceptedFileList = fileList;
+    }
 
     /* Validate files */
     let filesAreValid: boolean;
@@ -554,16 +624,17 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       filesAreValid = validateFiles({
         files: filesForValidation,
         fileList: acceptedFileList,
-        setError,
+        setError: setValidationError,
         fileConfig: currentFileConfig,
         endpointFileConfig,
         toolResource: _toolResource,
         skipSizeValidation: true,
-        skipBatchRules: selection.keptIndices.length > 0,
+        skipBatchRules: selection.keptIndices.length > 0 || mimeKeptIndices.length > 0,
+        skipMimeValidation: typePartition.skipped.length > 0 || mimeKeptIndices.length > 0,
       });
     } catch (error) {
       console.error('file validation error', error);
-      setError('com_error_files_validation');
+      setValidationError('com_error_files_validation');
       setFilesLoading(false);
       return false;
     }
@@ -687,9 +758,9 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         deleteFileById(file_id);
         console.log('file handling error', error);
         if (error instanceof Error && error.message.includes('HEIC')) {
-          setError('com_error_heic_conversion');
+          setValidationError('com_error_heic_conversion');
         } else {
-          setError('com_error_files_process');
+          setValidationError('com_error_files_process');
         }
       }
     }
@@ -726,13 +797,13 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         validateFileLimit({
           files: filesForValidation,
           fileList: acceptedFiles,
-          setError,
+          setError: setValidationError,
           endpointFileConfig,
         }) &&
         validateFileSizes({
           files: filesForValidation,
           fileList: acceptedFiles,
-          setError,
+          setError: setValidationError,
           endpointFileConfig,
         });
       if (!batchIsValid) {
@@ -742,13 +813,13 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
           const noDuplicates = validateFileDuplicates({
             files: filesForValidation,
             fileList: processedFileList,
-            setError,
+            setError: setValidationError,
           });
           if (noDuplicates) {
             validateFileSizes({
               files: filesForValidation,
               fileList: processedFileList,
-              setError,
+              setError: setValidationError,
               endpointFileConfig,
             });
           }
@@ -759,7 +830,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       }
     } catch (error) {
       console.error('file validation error', error);
-      setError('com_error_files_validation');
+      setValidationError('com_error_files_validation');
       discardProcessedUploads();
       setFilesLoading(false);
       return false;
@@ -770,7 +841,10 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     }
     /** Held until the batch is known to be uploading: a selection that is rejected in full reports
      * itself through the batch-level errors alone, never alongside a partial-success notice. */
-    reportSkippedUploads([...selection.skipped, ...batch.skipped], endpointFileConfig);
+    reportSkippedUploads(
+      [...selection.skipped, ...typeSkipped, ...batch.skipped],
+      endpointFileConfig,
+    );
 
     const filesWithProcessedUploads = new Map(existingFiles);
     for (const { extendedFile } of acceptedUploads) {

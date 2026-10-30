@@ -1,10 +1,20 @@
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { FileUpload, TooltipAnchor, AttachmentIcon } from '@librechat/client';
+import {
+  getConfiguredMimeAccept,
+  getEndpointFileConfig,
+  mergeFileConfig,
+} from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import { useFileHandlingNoChatContext, useLocalize } from '~/hooks';
+import { useGetFileConfig } from '~/data-provider';
 import { cn } from '~/utils';
+
+const DEFAULT_UPLOAD_ACCEPT_CAPABILITY = {
+  categories: ['image', 'document', 'audio', 'video'],
+} as const;
 
 const AttachFile = ({
   disabled,
@@ -25,6 +35,22 @@ const AttachFile = ({
   const tooltipDescription = useShortcutHint('uploadFile', localize('com_sidepanel_attach_files'));
   const ariaKey = useShortcutAriaKey('uploadFile');
 
+  const { data: fileConfig = null } = useGetFileConfig({
+    select: (data) => mergeFileConfig(data),
+  });
+  const fileAccept = useMemo(() => {
+    const endpoint = conversation?.endpoint ?? 'default';
+    const endpointFileConfig = getEndpointFileConfig({
+      fileConfig,
+      endpoint,
+      endpointType: conversation?.endpointType,
+    });
+    return getConfiguredMimeAccept(
+      endpointFileConfig.supportedMimeTypes,
+      DEFAULT_UPLOAD_ACCEPT_CAPABILITY,
+    );
+  }, [conversation?.endpoint, conversation?.endpointType, fileConfig]);
+
   const { handleFileChange } = useFileHandlingNoChatContext(undefined, {
     files,
     setFiles,
@@ -33,7 +59,7 @@ const AttachFile = ({
   });
 
   return (
-    <FileUpload ref={inputRef} handleFileChange={handleFileChange}>
+    <FileUpload accept={fileAccept} ref={inputRef} handleFileChange={handleFileChange}>
       <TooltipAnchor
         description={tooltipDescription}
         id="attach-file"

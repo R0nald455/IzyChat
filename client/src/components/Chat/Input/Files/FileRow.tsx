@@ -73,7 +73,11 @@ export default function FileRow({
         tool_resource,
       ),
     onSuccess: () => {
-      console.log('Files deleted');
+      showToast({
+        message: localize('com_ui_file_removed'),
+        status: 'success',
+        duration: 2500,
+      });
     },
     onError: (error) => {
       console.log('Error deleting files:', error);

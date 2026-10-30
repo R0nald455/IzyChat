@@ -318,11 +318,90 @@ export function formatFileSize(bytes: number): string {
 
 const { checkType } = defaultFileConfig;
 
+export type SetFileValidationError = (
+  key: string,
+  options?: Record<string, string | number>,
+) => void;
+
 type FileSizeValidationParams = {
   fileList: File[];
   files: Map<string, ExtendedFile>;
-  setError: (error: string) => void;
+  setError: SetFileValidationError;
   endpointFileConfig: EndpointFileConfig;
+};
+
+/** Extensions blocked for security regardless of MIME sniffing. */
+const SECURITY_BLOCKED_EXTENSIONS = new Set([
+  'exe',
+  'bat',
+  'cmd',
+  'com',
+  'msi',
+  'scr',
+  'dll',
+  'ps1',
+  'vbs',
+]);
+
+export const isSecurityBlockedFileName = (fileName: string): boolean => {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+  return SECURITY_BLOCKED_EXTENSIONS.has(extension);
+};
+
+export const getMimeTypesForUploadValidation = (
+  endpointFileConfig: EndpointFileConfig,
+  toolResource: string | undefined,
+  fileConfig: FileConfig | null,
+): RegexLike[] | undefined => {
+  const { supportedMimeTypes } = endpointFileConfig;
+  if (toolResource === EToolResources.context) {
+    return [
+      ...(fileConfig?.text?.supportedMimeTypes || []),
+      ...(fileConfig?.ocr?.supportedMimeTypes || []),
+      ...(fileConfig?.stt?.supportedMimeTypes || []),
+    ];
+  }
+  return supportedMimeTypes;
+};
+
+/** Maps endpoint MIME allowlists to translation keys for user-facing format hints. */
+export const getAllowedFormatCategoryKeys = (mimeTypes: RegexLike[] | undefined): string[] => {
+  const patterns = mimeTypes ?? defaultFileConfig.endpoints.default.supportedMimeTypes ?? [];
+  const keys: string[] = [];
+  const add = (key: string) => {
+    if (!keys.includes(key)) {
+      keys.push(key);
+    }
+  };
+  const categoryProbes: Array<[string, string]> = [
+    ['com_ui_format_category_images', 'image/png'],
+    ['com_ui_format_category_documents', 'application/pdf'],
+    ['com_ui_format_category_documents', 'text/plain'],
+    ['com_ui_format_category_audio', 'audio/mpeg'],
+    ['com_ui_format_category_video', 'video/mp4'],
+    ['com_ui_format_category_archives', 'application/zip'],
+  ];
+  for (const [key, mimeType] of categoryProbes) {
+    if (patterns.some((pattern) => pattern.test(mimeType))) {
+      add(key);
+    }
+  }
+  if (keys.length === 0) {
+    add('com_ui_format_category_documents');
+    add('com_ui_format_category_images');
+  }
+  return keys;
+};
+
+const normalizeUploadFileType = (file: File): File | null => {
+  const fileType = inferMimeType(file.name, file.type);
+  if (!fileType) {
+    return null;
+  }
+  if (file.type === fileType) {
+    return file;
+  }
+  return new File([file], file.name, { type: fileType });
 };
 
 /** Identity used to detect a file already selected or attached: name, byte size, and MIME group. */
@@ -347,8 +426,10 @@ export const validateFileSizes = ({
 
   if (fileSizeLimit != null) {
     for (const file of fileList) {
-      if (file.size >= fileSizeLimit) {
-        setError(`File size limit exceeded: ${fileSizeLimit / megabyte} MB`);
+      if (file.size > fileSizeLimit) {
+        setError('com_error_files_size_limit', {
+          0: `${fileSizeLimit / megabyte}`,
+        });
         return false;
       }
     }
@@ -361,7 +442,9 @@ export const validateFileSizes = ({
     );
     const incomingTotalSize = fileList.reduce((total, file) => total + file.size, 0);
     if (currentTotalSize + incomingTotalSize > totalSizeLimit) {
-      setError(`Total file size limit exceeded: ${totalSizeLimit / megabyte} MB`);
+      setError('com_error_files_total_size_limit', {
+        0: `${totalSizeLimit / megabyte}`,
+      });
       return false;
     }
   }
@@ -377,13 +460,18 @@ export const validateFileLimit = ({
 }: FileSizeValidationParams): boolean => {
   const { fileLimit } = endpointFileConfig;
   if (fileLimit && fileList.length + files.size > fileLimit) {
-    setError(`File limit reached: ${fileLimit} files`);
+    setError('com_error_files_limit_reached', { 0: `${fileLimit}` });
     return false;
   }
   return true;
 };
 
-export type UploadSkipReason = 'duplicate' | 'fileSize';
+export type UploadSkipReason =
+  | 'duplicate'
+  | 'fileSize'
+  | 'unsupportedType'
+  | 'securityBlocked'
+  | 'unknownType';
 
 export type SkippedUpload = {
   /** Position in the `fileList` handed to `partitionUploads`, so callers can map back to their own parallel arrays */
@@ -439,7 +527,7 @@ export const partitionUploads = ({
     }
     signatures.add(signature);
 
-    if (fileSizeLimit != null && file.size >= fileSizeLimit) {
+    if (fileSizeLimit != null && file.size > fileSizeLimit) {
       skipped.push({ index: i, file, reason: 'fileSize' });
       continue;
     }
@@ -450,10 +538,69 @@ export const partitionUploads = ({
   return { keptIndices, skipped };
 };
 
+export type PartitionUploadsByTypeParams = {
+  fileList: File[];
+  endpointFileConfig: EndpointFileConfig;
+  toolResource?: string;
+  fileConfig: FileConfig | null;
+};
+
+export type PartitionUploadsByTypeResult = UploadPartition & {
+  normalizedFiles: File[];
+};
+
+/**
+ * Splits a batch by MIME allowlist and security rules so valid files can proceed when invalid
+ * types are selected together. Mutates `fileList` entries in place when MIME types are inferred.
+ */
+export const partitionUploadsByType = ({
+  fileList,
+  endpointFileConfig,
+  toolResource,
+  fileConfig,
+}: PartitionUploadsByTypeParams): PartitionUploadsByTypeResult => {
+  const mimeTypesToCheck = getMimeTypesForUploadValidation(
+    endpointFileConfig,
+    toolResource,
+    fileConfig,
+  );
+  const keptIndices: number[] = [];
+  const skipped: SkippedUpload[] = [];
+  const normalizedFiles: File[] = [];
+
+  for (let i = 0; i < fileList.length; i++) {
+    const originalFile = fileList[i];
+    if (isSecurityBlockedFileName(originalFile.name)) {
+      skipped.push({ index: i, file: originalFile, reason: 'securityBlocked' });
+      continue;
+    }
+
+    const normalized = normalizeUploadFileType(originalFile);
+    if (normalized == null) {
+      skipped.push({ index: i, file: originalFile, reason: 'unknownType' });
+      continue;
+    }
+
+    if (normalized !== originalFile) {
+      fileList[i] = normalized;
+    }
+
+    if (!checkType(normalized.type, mimeTypesToCheck)) {
+      skipped.push({ index: i, file: normalized, reason: 'unsupportedType' });
+      continue;
+    }
+
+    keptIndices.push(i);
+    normalizedFiles.push(normalized);
+  }
+
+  return { keptIndices, skipped, normalizedFiles };
+};
+
 type FileDuplicateValidationParams = {
   fileList: File[];
   files: Map<string, ExtendedFile>;
-  setError: (error: string) => void;
+  setError: SetFileValidationError;
 };
 
 export const validateFileDuplicates = ({
@@ -489,10 +636,11 @@ export const validateFiles = ({
   fileConfig,
   skipSizeValidation = false,
   skipBatchRules = false,
+  skipMimeValidation = false,
 }: {
   fileList: File[];
   files: Map<string, ExtendedFile>;
-  setError: (error: string) => void;
+  setError: SetFileValidationError;
   endpointFileConfig: EndpointFileConfig;
   toolResource?: string;
   fileConfig: FileConfig | null;
@@ -501,8 +649,10 @@ export const validateFiles = ({
   /** The caller partitions the selection itself, so the rules that would reject the batch as a
    * whole — the file count and duplicates — wait until it has dropped what it can */
   skipBatchRules?: boolean;
+  /** MIME and security checks already ran in `partitionUploadsByType` */
+  skipMimeValidation?: boolean;
 }) => {
-  const { supportedMimeTypes, disabled } = endpointFileConfig;
+  const { disabled } = endpointFileConfig;
   /** Block all uploads if the endpoint is explicitly disabled */
   if (disabled === true) {
     setError('com_ui_attach_error_disabled');
@@ -518,39 +668,34 @@ export const validateFiles = ({
     return false;
   }
 
-  for (let i = 0; i < fileList.length; i++) {
-    let originalFile = fileList[i];
-    const fileType = inferMimeType(originalFile.name, originalFile.type);
+  if (!skipMimeValidation) {
+    for (let i = 0; i < fileList.length; i++) {
+      const originalFile = fileList[i];
+      if (isSecurityBlockedFileName(originalFile.name)) {
+        setError('com_error_files_unsupported_security', { 0: originalFile.name });
+        return false;
+      }
 
-    // Check if the file type is still empty after the extension check
-    if (!fileType) {
-      setError('Unable to determine file type for: ' + originalFile.name);
-      return false;
-    }
+      const normalized = normalizeUploadFileType(originalFile);
+      if (normalized == null) {
+        setError('com_error_files_unknown_type', { 0: originalFile.name });
+        return false;
+      }
 
-    // Replace empty type with inferred type
-    if (originalFile.type !== fileType) {
-      const newFile = new File([originalFile], originalFile.name, { type: fileType });
-      originalFile = newFile;
-      fileList[i] = newFile;
-    }
+      if (normalized !== originalFile) {
+        fileList[i] = normalized;
+      }
 
-    /* Unified mode routes by MIME type but does not widen what may be uploaded: the
-     * endpoint allowlist is the same ceiling the server enforces in `filterFile`, so
-     * accepting extraction-capable types beyond it only turns a preflight message into
-     * a failed request. */
-    let mimeTypesToCheck = supportedMimeTypes;
-    if (toolResource === EToolResources.context) {
-      mimeTypesToCheck = [
-        ...(fileConfig?.text?.supportedMimeTypes || []),
-        ...(fileConfig?.ocr?.supportedMimeTypes || []),
-        ...(fileConfig?.stt?.supportedMimeTypes || []),
-      ];
-    }
+      const mimeTypesToCheck = getMimeTypesForUploadValidation(
+        endpointFileConfig,
+        toolResource,
+        fileConfig,
+      );
 
-    if (!checkType(originalFile.type, mimeTypesToCheck)) {
-      setError(`Unsupported file type: ${originalFile.type}`);
-      return false;
+      if (!checkType(normalized.type, mimeTypesToCheck)) {
+        setError('com_error_files_unsupported_type', { 0: normalized.type });
+        return false;
+      }
     }
   }
 
