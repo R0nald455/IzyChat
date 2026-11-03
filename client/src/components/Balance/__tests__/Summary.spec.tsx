@@ -34,13 +34,13 @@ describe('balance Summary', () => {
   it('shows credits, the share spent and the next refill', () => {
     render(<Summary state={success('credits')} />);
     expect(screen.getByRole('heading', { name: 'Balance' })).toBeInTheDocument();
-    expect(screen.getByTestId('balance-value')).toHaveTextContent('3,100,000 credits');
+    expect(screen.getByTestId('balance-value')).toHaveTextContent('3.100.000 credits');
     expect(screen.getByRole('progressbar', { name: 'Share of balance used' })).toHaveAttribute(
       'aria-valuenow',
       '38',
     );
     expect(screen.getByTestId('balance-refill')).toHaveTextContent(
-      '+5,000,000 available in 3 days',
+      '+5.000.000 available in 3 days',
     );
     expect(screen.getByTestId('balance-status')).toHaveTextContent('38% used');
   });
@@ -56,7 +56,7 @@ describe('balance Summary', () => {
     expect(screen.getByRole('heading', { name: 'Usage limit' })).toBeInTheDocument();
     expect(screen.getByTestId('balance-value')).toHaveTextContent('38% used');
     expect(screen.getByTestId('balance-refill')).toHaveTextContent('Refill available in 3 days');
-    expect(container).not.toHaveTextContent(/credits|5,000,000|3,100,000|\$/);
+    expect(container).not.toHaveTextContent(/credits|5.000.000|3.100.000|\$/);
   });
 
   it('says when a due refill will land rather than a past date', () => {
@@ -67,7 +67,7 @@ describe('balance Summary', () => {
   it('shows reset timing without exposing the allowance in percent mode', () => {
     const { container } = render(<Summary state={success('percent', { refillMode: 'reset' })} />);
     expect(screen.getByTestId('balance-refill')).toHaveTextContent('Usage resets in 3 days');
-    expect(container).not.toHaveTextContent(/credits|5,000,000|3,100,000|\$/);
+    expect(container).not.toHaveTextContent(/credits|5.000.000|3.100.000|\$/);
   });
 
   it('shows a due reset on the next request rather than waiting for exhaustion', () => {
