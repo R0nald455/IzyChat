@@ -57,6 +57,11 @@ const chatProjectSchema: Schema<IChatProjectDocument> = new Schema<IChatProjectD
       type: String,
       index: true,
     },
+    /** IzyTesting organization uuid. Project folders are scoped by user + this field. */
+    organizationId: {
+      type: String,
+      index: true,
+    },
   },
   { timestamps: true },
 );
@@ -64,5 +69,6 @@ const chatProjectSchema: Schema<IChatProjectDocument> = new Schema<IChatProjectD
 chatProjectSchema.index({ user: 1, name: 1, _id: 1 });
 chatProjectSchema.index({ user: 1, createdAt: -1, _id: -1 });
 chatProjectSchema.index({ user: 1, lastConversationAt: -1, _id: -1 });
+chatProjectSchema.index({ user: 1, organizationId: 1, lastConversationAt: -1, _id: -1 });
 
 export default chatProjectSchema;

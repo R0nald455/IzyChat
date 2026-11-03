@@ -58,6 +58,13 @@ export default function useSelectMention({
       }
 
       const conversation = getConversation();
+      if (
+        conversation?.spec === spec.name &&
+        conversation.conversationId != null &&
+        conversation.conversationId !== 'new'
+      ) {
+        return;
+      }
       const preset = {
         ...spec.preset,
         iconURL: getModelSpecIconURL(spec),
@@ -124,6 +131,7 @@ export default function useSelectMention({
         },
         preset,
         keepAddedConvos: isModular,
+        abandonOpenChat: true,
       });
     },
     [
@@ -222,6 +230,7 @@ export default function useSelectMention({
         },
         preset: { ...kwargs, spec: null, iconURL: null, modelLabel: null, endpoint: newEndpoint },
         keepAddedConvos: isNewModular,
+        abandonOpenChat: true,
       });
     },
     [
@@ -293,6 +302,7 @@ export default function useSelectMention({
         preset: newPreset,
         keepAddedConvos: isModular,
         disableParams,
+        abandonOpenChat: true,
       });
     },
     [

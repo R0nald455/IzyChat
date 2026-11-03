@@ -99,6 +99,7 @@ jest.mock('@librechat/api', () => {
       }
     },
     maybeRefreshCloudFrontAuthCookiesMiddleware: jest.fn((req, res, next) => next()),
+    attachIzyOrganization: (_req, _res, next) => next(),
     tenantContextMiddleware: (req, res, next) => {
       const context = {
         tenantId: normalizeContextValue(req.user?.tenantId),

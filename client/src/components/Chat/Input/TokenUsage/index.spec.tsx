@@ -130,7 +130,7 @@ describe('TokenUsage gauge', () => {
     renderGauge();
     const card = await openCard();
     expect(within(card).getByRole('heading', { name: 'Balance' })).toBeInTheDocument();
-    expect(within(card).getByTestId('balance-value')).toHaveTextContent('3,100,000 credits');
+    expect(within(card).getByTestId('balance-value')).toHaveTextContent('3.100.000 credits');
   });
 
   it('keeps the card inside the viewport', async () => {
@@ -225,9 +225,9 @@ describe('TokenUsage gauge', () => {
       const refillRow = within(settings.container).queryByText('Refill Amount:');
       if (display === 'percent') {
         expect(refillRow).not.toBeInTheDocument();
-        expect(settings.container).not.toHaveTextContent(/5,000,000|\$5\.00/);
+        expect(settings.container).not.toHaveTextContent(/5\.000\.000|\$5\.00/);
       } else {
-        const amount = display === 'currency' ? '$5.00' : '5,000,000';
+        const amount = display === 'currency' ? '$5.00' : '5.000.000';
         expect(refillRow?.nextElementSibling).toHaveTextContent(amount);
         expect(gauge).toContain(`+${amount}`);
       }

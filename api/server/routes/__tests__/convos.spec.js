@@ -2296,7 +2296,7 @@ describe('Convos Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ archivedCount: 4 });
       expect(archiveAllHandler).toHaveBeenCalledTimes(1);
-      expect(archiveAllConvos).toHaveBeenCalledWith('test-user-123');
+      expect(archiveAllConvos).toHaveBeenCalledWith('test-user-123', undefined);
     });
   });
 

@@ -1,5 +1,6 @@
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
+const { isIzyOrganizationIsolationEnabled, refreshIzyOrganization } = require('@librechat/api');
 const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
 const { isRequestRevoked } = require('~/server/services/IzyTestingRevocation');
 const db = require('~/models');
@@ -24,8 +25,23 @@ router.get('/check', requireJwtAuth, async (req, res) => {
       return res.status(401).json({ message: 'Session revoked' });
     }
 
+    if (isIzyOrganizationIsolationEnabled()) {
+      await refreshIzyOrganization(req);
+    }
+
     if (req.authStrategy === 'openidJwt') {
-      return res.status(200).json({ valid: true });
+      /**
+       * The bearer (ID token) can outlive the server-side session that holds the
+       * IdP access token (expired or lost on restart); tell the client to run the
+       * refresh flow, which rebuilds it from the `refreshToken` cookie.
+       */
+      const refreshRequired = !req.user?.federatedTokens?.access_token;
+      return res.status(200).json({
+        valid: true,
+        organizationId: req.izyOrganizationId ?? null,
+        organizationName: req.izyOrganizationName ?? null,
+        refreshRequired,
+      });
     }
 
     const activeCount = await db.countActiveSessions(userId);
@@ -33,7 +49,11 @@ router.get('/check', requireJwtAuth, async (req, res) => {
       return res.status(401).json({ message: 'Session revoked' });
     }
 
-    return res.status(200).json({ valid: true });
+    return res.status(200).json({
+      valid: true,
+      organizationId: req.izyOrganizationId ?? null,
+      organizationName: req.izyOrganizationName ?? null,
+    });
   } catch (error) {
     logger.error('[izytesting-session/check] Error checking session', error);
     return res.status(500).json({ message: 'Error checking session' });

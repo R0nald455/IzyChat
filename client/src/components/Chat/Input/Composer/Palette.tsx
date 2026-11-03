@@ -1183,9 +1183,19 @@ function Palette({
     ],
   );
 
-  const disclosureLabel = dictating
-    ? localize('com_ui_cancel')
-    : localize('com_ui_composer_palette');
+  const attachOnlyPalette = canAttach && entries.length === 0;
+  const paletteLabelKey: TranslationKeys = attachOnlyPalette
+    ? 'com_ui_composer_palette_attach'
+    : 'com_ui_composer_palette';
+  const paletteSearchKey: TranslationKeys = attachOnlyPalette
+    ? 'com_ui_composer_palette_search_attach'
+    : 'com_ui_composer_palette_search';
+  const paletteHelpKey: TranslationKeys = attachOnlyPalette
+    ? 'com_ui_composer_palette_help_attach'
+    : 'com_ui_composer_palette_help';
+
+  const disclosureLabel = dictating ? localize('com_ui_cancel') : localize(paletteLabelKey);
+  const paletteSearchLabel = localize(paletteSearchKey);
 
   return (
     <>
@@ -1301,7 +1311,7 @@ function Palette({
             /* Anchored to the composer, not the `+` button, so the menu spans
                the composer's width and sits flush above it. */
             getAnchorRect={() => anchorRef.current?.getBoundingClientRect() ?? null}
-            aria-label={localize('com_ui_composer_palette')}
+            aria-label={localize(paletteLabelKey)}
             style={{ width: 'var(--popover-anchor-width)' }}
             className="animate-composer-popover border-border-menu bg-surface-menu rounded-theme-popover z-50 flex max-w-[95vw] flex-col overflow-hidden border shadow-lg outline-hidden"
           >
@@ -1337,8 +1347,8 @@ function Palette({
                     : undefined
                 }
                 aria-describedby={helpId}
-                aria-label={localize('com_ui_composer_palette_search')}
-                placeholder={localize('com_ui_composer_palette_search')}
+                aria-label={paletteSearchLabel}
+                placeholder={paletteSearchLabel}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -1346,7 +1356,9 @@ function Palette({
                 className="text-text-primary placeholder:text-text-secondary focus-visible:ring-focus-control w-full rounded-md border-0 bg-transparent text-sm shadow-none ring-0 focus:border-0 focus:ring-0 focus:outline-hidden focus-visible:ring-2 focus-visible:outline-hidden"
               />
               <span id={helpId} className="sr-only">
-                {localize('com_ui_composer_palette_help', { 0: FAVORITE_MODIFIER })}
+                {attachOnlyPalette
+                  ? localize(paletteHelpKey)
+                  : localize(paletteHelpKey, { 0: FAVORITE_MODIFIER })}
               </span>
             </div>
             {rows.length === 0 && (
@@ -1384,7 +1396,7 @@ function Palette({
                        `aria-readonly`, which only a grid may carry. */
                     id={listId}
                     role="grid"
-                    aria-label={localize('com_ui_composer_palette')}
+                    aria-label={localize(paletteLabelKey)}
                     containerRole="rowgroup"
                     /* Only the rows in view are mounted, so the grid states
                        the total and each row its position within it. */

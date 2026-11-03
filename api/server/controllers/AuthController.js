@@ -315,6 +315,21 @@ const refreshLocalSession = createLocalRefreshHandler({
   error: (message, cause) => logger.error(message, cause),
 });
 
+/**
+ * When the stored session expired (or the store was wiped by a restart), express-session hands
+ * the request a fresh, unsaved session. Token publication reloads `req.session` from the store,
+ * which fails with "failed to load session" for an unsaved one, so the IdP refresh that would
+ * rebuild it gets discarded. Persisting the empty session first lets the refresh recreate it.
+ */
+const persistFreshOpenIDSession = async (req) => {
+  if (!req.session || req.session.openidTokens || typeof req.session.save !== 'function') {
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
+};
+
 const refreshController = async (req, res) => {
   const parsedCookies = req.headers.cookie ? cookies.parse(req.headers.cookie) : {};
   const token_provider = parsedCookies.token_provider;
@@ -329,7 +344,8 @@ const refreshController = async (req, res) => {
     }
 
     const revocationUserId =
-      req.session?.openidTokens?.appUserId ?? getValidOpenIDReuseUserId(parsedCookies);
+      req.session?.openidTokens?.appUserId ??
+      getValidOpenIDReuseCredential(parsedCookies, process.env.JWT_REFRESH_SECRET)?.userId;
     if (revocationUserId && (await isUserRevoked(revocationUserId))) {
       logger.info('[refreshController] IzyTesting session revoked; refusing OpenID refresh', {
         userId: revocationUserId,
@@ -411,6 +427,8 @@ const refreshController = async (req, res) => {
       if (!refreshUser) {
         return res.status(403).send('Invalid OpenID refresh token');
       }
+
+      await persistFreshOpenIDSession(req);
 
       return await runInUserTenant(refreshUser, async () => {
         let successfulRefreshToken = refreshToken;

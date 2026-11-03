@@ -179,7 +179,7 @@ export default function ProjectWorkspace() {
     clearMessagesCache(queryClient, conversation?.conversationId);
     queryClient.invalidateQueries([QueryKeys.messages]);
     navigate(`/c/${Constants.NEW_CONVO}?projectId=${encodeURIComponent(activeProjectId)}`);
-    newConversation({ template: { chatProjectId: activeProjectId } });
+    newConversation({ template: { chatProjectId: activeProjectId }, abandonOpenChat: true });
   }, [activeProjectId, conversation?.conversationId, navigate, newConversation, queryClient]);
 
   if (isProjectLoading) {

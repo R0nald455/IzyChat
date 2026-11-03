@@ -4872,6 +4872,10 @@ export enum ErrorTypes {
    * A manual compaction whose summarizer produced nothing; history is untouched
    */
   COMPACTION_FAILED = 'compaction_failed',
+  /**
+   * The user's OpenID session can no longer supply its access token; signing in again fixes it
+   */
+  OPENID_REAUTH_REQUIRED = 'openid_reauth_required',
 }
 
 /**

@@ -566,6 +566,7 @@ export default {
   patch: _patch,
   authenticatedFetch: _authenticatedFetch,
   refreshToken,
+  startAuthRecovery,
   dispatchTokenUpdatedEvent,
   redirectIfTwoFactorSetupPayload,
 };

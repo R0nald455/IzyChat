@@ -83,6 +83,7 @@ describe('ChatProject handlers', () => {
       projectId,
       { name: 'Renamed', contextRevision: 3 },
       undefined,
+      undefined,
     );
     expect(result.statusCode).toBe(409);
     expect(result.body).toEqual({

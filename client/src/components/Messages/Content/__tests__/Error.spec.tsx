@@ -131,7 +131,7 @@ function localized(key: string, ...values: string[]) {
   return values.reduce((copy, value, index) => copy.replace(`{{${index}}}`, value), catalog[key]);
 }
 
-const numberFormat = new Intl.NumberFormat();
+const numberFormat = new Intl.NumberFormat('es-CO');
 
 /** Mounts the chat surface, the only one whose composer can compact a conversation. */
 const chatConversation: Partial<TConversation> = {
@@ -831,7 +831,7 @@ describe('Error — token balance and context budget', () => {
     renderError({ type: ViolationTypes.TOKEN_BALANCE, balance: 1250, tokenCost: 8400 });
 
     expect(screen.getByText(catalog.com_error_token_balance_hidden)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/1,250|8,400|credits/);
+    expect(document.body.textContent).not.toMatch(/1\.250|8\.400|credits/);
   });
 
   it('lists every generation charge rather than a truncated subset', () => {
@@ -975,6 +975,15 @@ describe('Error — manual compaction', () => {
     renderError({ type: ErrorTypes.COMPACTION_SKIPPED, reason: 'exhausted' });
 
     expect(screen.getByText(catalog.com_error_compaction_failed)).toBeInTheDocument();
+  });
+
+  it('renders sign-in guidance, not the internal placeholder, when OpenID reauth is required', () => {
+    const { container } = render(
+      <Error text={JSON.stringify({ type: ErrorTypes.OPENID_REAUTH_REQUIRED })} />,
+    );
+
+    expect(screen.getByText(catalog.com_error_openid_reauth_required)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/LIBRECHAT_OPENID/);
   });
 });
 

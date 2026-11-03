@@ -44,6 +44,11 @@ import {
   createFallbackRetentionDate,
 } from '~/utils/retention';
 import {
+  organizationOnInsert,
+  organizationLookupScope,
+  organizationScope,
+} from '~/utils/organizationScope';
+import {
   refreshChatProjectStatsForUser,
   updateChatProjectLastConversationForUser,
 } from './chatProject';
@@ -296,6 +301,7 @@ export interface ConversationMethods {
       isTemporary?: boolean;
       expiredAt?: Date;
       interfaceConfig?: AppConfig['interfaceConfig'];
+      organizationId?: string | null;
     },
     data: { conversationId: string; newConversationId?: string; [key: string]: unknown },
     metadata?: {
@@ -332,6 +338,7 @@ export interface ConversationMethods {
     user: string,
     conversationId: string,
     pinned: boolean,
+    organizationId?: string | null,
   ): Promise<IConversation | null>;
   appendConvoMessageReference(
     user: string,
@@ -414,6 +421,7 @@ export interface ConversationMethods {
       endpoints?: string[];
       hasFiles?: boolean;
       sharedOnly?: boolean;
+      organizationId?: string | null;
     },
   ): Promise<{ conversations: IConversation[]; nextCursor: string | null }>;
   getConvosQueried(
@@ -421,12 +429,17 @@ export interface ConversationMethods {
     convoIds: Array<{ conversationId: string }> | null,
     cursor?: string | null,
     limit?: number,
+    organizationId?: string | null,
   ): Promise<{
     conversations: IConversation[];
     nextCursor: string | null;
     convoMap: Record<string, unknown>;
   }>;
-  getConvo(user: string, conversationId: string): Promise<IConversation | null>;
+  getConvo(
+    user: string,
+    conversationId: string,
+    organizationId?: string | null,
+  ): Promise<IConversation | null>;
   getConvoTitleState(user: string, conversationId: string): Promise<ConversationTitleState | null>;
   getSubagentThreadForParent(input: {
     user: string;
@@ -603,7 +616,8 @@ export interface ConversationMethods {
     user: string,
     conversationId: string,
     tenantId?: string | null,
-  ): Promise<Pick<IConversation, 'user' | 'tenantId' | 'subagentThread'> | null>;
+    organizationId?: string | null,
+  ): Promise<Pick<IConversation, 'user' | 'tenantId' | 'organizationId' | 'subagentThread'> | null>;
   getConvoRetention(
     user: string,
     conversationId: string,
@@ -635,9 +649,13 @@ export interface ConversationMethods {
     options?: {
       beforeDelete?: (conversationIds: string[]) => Promise<void>;
       allowEmpty?: boolean;
+      organizationId?: string | null;
     },
   ): Promise<DeleteResult & { messages: DeleteResult; conversationIds: string[] }>;
-  archiveAllConvos(user: string): Promise<{ archivedCount: number }>;
+  archiveAllConvos(
+    user: string,
+    organizationId?: string | null,
+  ): Promise<{ archivedCount: number }>;
 }
 
 export interface ConversationMethodDeps
@@ -754,10 +772,14 @@ export function createConversationMethods(
   /**
    * Retrieves a single conversation for a given user and conversation ID.
    */
-  async function getConvo(user: string, conversationId: string) {
+  async function getConvo(user: string, conversationId: string, organizationId?: string | null) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
-      return await Conversation.findOne({ user, conversationId }).lean<IConversation>();
+      return await Conversation.findOne({
+        user,
+        conversationId,
+        ...organizationLookupScope<IConversation>(organizationId),
+      }).lean<IConversation>();
     } catch (error) {
       logger.error('[getConvo] Error getting single conversation', error);
       throw new Error('Error getting single conversation');
@@ -2266,7 +2288,12 @@ export function createConversationMethods(
    * without materializing the full conversation document (preset spread +
    * message ObjectId array).
    */
-  async function getConvoOwnership(user: string, conversationId: string, tenantId?: string | null) {
+  async function getConvoOwnership(
+    user: string,
+    conversationId: string,
+    tenantId?: string | null,
+    organizationId?: string | null,
+  ) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const tenantFilter =
@@ -2276,10 +2303,11 @@ export function createConversationMethods(
           user,
           conversationId,
           ...tenantFilter,
+          ...organizationLookupScope<IConversation>(organizationId),
           ...activeExpirationFilter<IConversation>(),
         },
-        'user tenantId subagentThread',
-      ).lean<Pick<IConversation, 'user' | 'tenantId' | 'subagentThread'>>();
+        'user tenantId organizationId subagentThread',
+      ).lean<Pick<IConversation, 'user' | 'tenantId' | 'organizationId' | 'subagentThread'>>();
     } catch (error) {
       logger.error('[getConvoOwnership] Error checking conversation ownership', error);
       throw new Error('Error checking conversation ownership');
@@ -2433,11 +2461,13 @@ export function createConversationMethods(
       isTemporary,
       expiredAt,
       interfaceConfig,
+      organizationId,
     }: {
       userId: string;
       isTemporary?: boolean;
       expiredAt?: Date;
       interfaceConfig?: AppConfig['interfaceConfig'];
+      organizationId?: string | null;
     },
     {
       conversationId,
@@ -2474,6 +2504,7 @@ export function createConversationMethods(
 
       const appendMessageIds = metadata?.appendMessageIds;
       const update: Record<string, unknown> = { ...convo, user: userId };
+      delete update.organizationId;
       delete update.isTemporary;
       delete update.expiredAt;
       /* Read-state fields are server-owned. A stale marker must never be reintroduced by a
@@ -2516,6 +2547,7 @@ export function createConversationMethods(
       delete unsetFields.titleSetByUser;
       delete unsetFields.titleRevision;
       delete unsetFields.toolApprovalAllows;
+      delete unsetFields.organizationId;
       stripFields(unsetFields, LANE_PRIVATE_FIELDS);
       delete unsetFields.codeEnvironmentRevision;
       delete unsetFields.codeEnvironmentMode;
@@ -2625,7 +2657,12 @@ export function createConversationMethods(
         timestampOptions.timestamps = false;
       }
 
-      const canUpsert = metadata?.noUpsert !== true && metadata?.titleSource !== 'generated';
+      const isolationEnabled = organizationId !== undefined;
+      const hasOrganization = typeof organizationId === 'string' && organizationId.trim() !== '';
+      const canUpsert =
+        metadata?.noUpsert !== true &&
+        metadata?.titleSource !== 'generated' &&
+        (!isolationEnabled || hasOrganization);
       const initialAgentId =
         canUpsert &&
         typeof metadata?.initialAgentId === 'string' &&
@@ -2668,6 +2705,7 @@ export function createConversationMethods(
           initial_agent_id: initialAgentId,
           ...decisionOnInsert,
           ...retentionOnInsert,
+          ...organizationOnInsert(organizationId),
           ...(chatProjectIdOnInsert ? { chatProjectId: chatProjectIdOnInsert } : {}),
           ...(createdAtForInsert ? { createdAt: createdAtForInsert } : {}),
         };
@@ -2677,6 +2715,7 @@ export function createConversationMethods(
       const baseFilter = {
         conversationId,
         user: userId,
+        ...organizationScope<IConversation>(organizationId),
         ...(metadata?.titleSource === 'generated' && {
           titleSetByUser: { $ne: true },
           title: { $in: [null, '', 'New Chat'] },
@@ -2939,11 +2978,16 @@ export function createConversationMethods(
    *
    * Returns null when no conversation matched, so a pin can never insert one.
    */
-  async function setConvoPinned(user: string, conversationId: string, pinned: boolean) {
+  async function setConvoPinned(
+    user: string,
+    conversationId: string,
+    pinned: boolean,
+    organizationId?: string | null,
+  ) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       return await Conversation.findOneAndUpdate(
-        { conversationId, user },
+        { conversationId, user, ...organizationScope<IConversation>(organizationId) },
         { $set: { pinned } },
         { new: true, timestamps: false },
       ).lean<IConversation>();
@@ -3538,6 +3582,7 @@ export function createConversationMethods(
       endpoints,
       hasFiles,
       sharedOnly,
+      organizationId,
     }: {
       cursor?: string | null;
       limit?: number;
@@ -3553,6 +3598,7 @@ export function createConversationMethods(
       endpoints?: string[];
       hasFiles?: boolean;
       sharedOnly?: boolean;
+      organizationId?: string | null;
     } = {},
   ) {
     const Conversation = mongoose.models.Conversation as Model<IConversation> &
@@ -3562,7 +3608,9 @@ export function createConversationMethods(
     const pageSize = Number.isFinite(limit)
       ? Math.min(Math.max(Math.trunc(limit), 1), MAX_CONVO_PAGE_SIZE)
       : DEFAULT_CONVO_PAGE_SIZE;
-    const filters: FilterQuery<IConversation>[] = [{ user } as FilterQuery<IConversation>];
+    const filters: FilterQuery<IConversation>[] = [
+      { user, ...organizationScope<IConversation>(organizationId) } as FilterQuery<IConversation>,
+    ];
     if (isArchived) {
       filters.push({ isArchived: true } as FilterQuery<IConversation>);
     } else {
@@ -3640,8 +3688,12 @@ export function createConversationMethods(
 
     if (search) {
       try {
+        const meiliOrg =
+          typeof organizationId === 'string' && organizationId
+            ? ` AND organizationId = "${escapeMeiliFilterValue(organizationId)}"`
+            : '';
         const searchParams: SearchParams = {
-          filter: `user = "${escapeMeiliFilterValue(user)}"`,
+          filter: `user = "${escapeMeiliFilterValue(user)}"${meiliOrg}`,
           limit: MEILI_SEARCH_LIMIT,
           attributesToRetrieve: ['conversationId', 'originalConversationId'],
         };
@@ -3845,6 +3897,7 @@ export function createConversationMethods(
     convoIds: Array<{ conversationId: string }> | null,
     cursor: string | null = null,
     limit = 25,
+    organizationId?: string | null,
   ) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
@@ -3856,7 +3909,11 @@ export function createConversationMethods(
 
       const results = await Conversation.find({
         $and: [
-          { user, conversationId: { $in: conversationIds } },
+          {
+            user,
+            conversationId: { $in: conversationIds },
+            ...organizationScope<IConversation>(organizationId),
+          },
           getVisibleConversationRetentionFilter(),
           getHumanConversationFilter(),
         ],
@@ -3921,12 +3978,17 @@ export function createConversationMethods(
       /** Idempotent destructive-recovery mode. An empty selection is success, while
        * query, cascade, reconciliation, and deletion failures still propagate. */
       allowEmpty?: boolean;
+      organizationId?: string | null;
     },
   ) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const { deleteMessages, getMessages } = getMessageMethods();
-      const userFilter = { ...filter, user };
+      const userFilter = {
+        ...filter,
+        user,
+        ...organizationScope<IConversation>(options?.organizationId),
+      };
       type DeletionConversation = Pick<
         IConversation,
         'conversationId' | 'tenantId' | 'chatProjectId' | 'tags'
@@ -4134,7 +4196,7 @@ export function createConversationMethods(
    * retention-expired conversations are left alone: they are already hidden from the
    * chat list, so archiving them would only resurrect them in the archived view.
    */
-  async function archiveAllConvos(user: string) {
+  async function archiveAllConvos(user: string, organizationId?: string | null) {
     const Conversation = mongoose.models.Conversation as Model<IConversation>;
     const projectIds = new Set<string>();
     /** One stamp for the whole sweep so the archived view groups the run together
@@ -4151,6 +4213,7 @@ export function createConversationMethods(
     try {
       const filter = {
         user,
+        ...organizationScope<IConversation>(organizationId),
         $and: [
           { $or: [{ isArchived: false }, { isArchived: { $exists: false } }] },
           getVisibleConversationRetentionFilter(),

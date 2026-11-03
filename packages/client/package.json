@@ -33,7 +33,7 @@
   "scripts": {
     "clean": "rimraf dist",
     "b:clean": "bun run rimraf dist",
-    "build": "npm run clean && tsdown",
+    "build": "npm run clean && tsdown && node touch-dist-copies.mjs",
     "build:dev": "npm run clean && NODE_ENV=development tsdown",
     "b:build": "bun run b:clean && bun run tsdown",
     "build:watch": "tsdown --watch",

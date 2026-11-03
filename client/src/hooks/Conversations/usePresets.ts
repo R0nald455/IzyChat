@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import filenamify from 'filenamify';
 import exportFromJSON from 'export-from-json';
 import { useToastContext } from '@librechat/client';
-import { QueryKeys } from 'librechat-data-provider';
 import { useQueryClient } from '@tanstack/react-query';
+import { Constants, QueryKeys } from 'librechat-data-provider';
 import { useRecoilState, useSetRecoilState, useRecoilValue } from 'recoil';
 import { useCreatePresetMutation, useGetModelsQuery } from 'librechat-data-provider/react-query';
 import type { TPreset, TEndpointsConfig } from 'librechat-data-provider';
@@ -68,7 +68,11 @@ export default function usePresets(index = 0) {
       return;
     }
     setDefaultPreset(defaultPreset);
-    if (!conversationId || conversationId === 'new') {
+    const onNewChatPage =
+      typeof window === 'undefined' ||
+      window.location.pathname.endsWith(`/${Constants.NEW_CONVO}`) ||
+      window.location.pathname.endsWith('/new');
+    if (onNewChatPage && (!conversationId || conversationId === 'new')) {
       newConversation({ preset: defaultPreset, modelsData, disableParams: true });
     }
     hasLoaded.current = true;
@@ -120,7 +124,7 @@ export default function usePresets(index = 0) {
       if (data.defaultPreset && data.presetId !== _defaultPreset?.presetId) {
         message = `${toastTitle} ${localize('com_endpoint_preset_default')}`;
         setDefaultPreset(data);
-        newConversation({ preset: data, disableParams: true });
+        newConversation({ preset: data, disableParams: true, abandonOpenChat: true });
       } else if (preset.defaultPreset === false) {
         setDefaultPreset(null);
         message = `${toastTitle} ${localize('com_endpoint_preset_default_removed')}`;
@@ -229,7 +233,12 @@ export default function usePresets(index = 0) {
       return;
     }
 
-    newConversation({ preset: newPreset, keepAddedConvos: isModular, disableParams });
+    newConversation({
+      preset: newPreset,
+      keepAddedConvos: isModular,
+      disableParams,
+      abandonOpenChat: true,
+    });
   };
 
   const onChangePreset = (preset: TPreset) => {

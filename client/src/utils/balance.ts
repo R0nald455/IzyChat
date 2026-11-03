@@ -101,10 +101,12 @@ export function formatBalanceAmount(
   if (display === 'currency') {
     return formatCost(credits / CREDITS_PER_USD, currency);
   }
-  /** Credits are fractional when pricing multipliers are; two places keep a shortfall like
-   *  100.4 against 100.3 visible, and whole amounts still print without decimals */
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(credits);
+  /** Whole credits with `.` as thousands separator, as IzyWeb shows them; fractional credits
+   *  (from pricing multipliers) are truncated so a balance is never shown higher than it is */
+  return creditsFormat.format(Math.trunc(credits));
 }
+
+const creditsFormat = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;

@@ -1,107 +1,22 @@
 import { useState, memo, useRef } from 'react';
-import { useSetAtom } from 'jotai';
-import { useSetRecoilState } from 'recoil';
 import * as Menu from '@ariakit/react/menu';
+import { Archive, Files } from 'lucide-react';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
-import {
-  Archive,
-  ChevronRight,
-  CircleHelp,
-  Files,
-  Keyboard,
-  LifeBuoy,
-  LogOut,
-  Scale,
-  ShieldCheck,
-} from 'lucide-react';
 import { ArchivedChatsModal } from '~/components/Nav/SettingsTabs/General/ArchivedChatsModal';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
-import { useGetStartupConfig } from '~/data-provider';
+import { izyActiveOrganizationAtom } from '~/store/izyOrganization';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { settingsOpenAtom } from './Settings';
-import { openInNewTab } from '~/utils';
 import { useLocalize } from '~/hooks';
-import store from '~/store';
-
-function HelpSubmenu({
-  helpAndFaqURL,
-  termsOfServiceURL,
-  privacyPolicyURL,
-  onShowShortcuts,
-}: {
-  helpAndFaqURL?: string;
-  termsOfServiceURL?: string;
-  privacyPolicyURL?: string;
-  onShowShortcuts: () => void;
-}) {
-  const localize = useLocalize();
-  const hasHelpFaq = !!helpAndFaqURL && helpAndFaqURL !== '/';
-  const hasTos = !!termsOfServiceURL;
-  const hasPrivacy = !!privacyPolicyURL;
-  const showLegalDivider = (hasHelpFaq || true) && (hasTos || hasPrivacy);
-
-  return (
-    <Menu.MenuProvider placement="right-start">
-      <Menu.MenuItem
-        hideOnClick={false}
-        render={
-          <Menu.MenuButton className="select-item flex w-full cursor-pointer items-center gap-2 text-sm" />
-        }
-      >
-        <CircleHelp className="icon-md" aria-hidden="true" />
-        <span className="flex-1 text-left">{localize('com_nav_help')}</span>
-        <ChevronRight className="text-text-secondary h-4 w-4" aria-hidden="true" />
-      </Menu.MenuItem>
-      <Menu.Menu
-        portal
-        gutter={12}
-        className="account-settings-popover popover-ui popover-from-left z-[126] w-[min(15.25rem,90vw)] rounded-lg"
-      >
-        {hasHelpFaq && (
-          <Menu.MenuItem
-            onClick={() => openInNewTab(helpAndFaqURL)}
-            className="select-item text-sm"
-          >
-            <LifeBuoy className="icon-md" aria-hidden="true" />
-            {localize('com_nav_help_faq')}
-          </Menu.MenuItem>
-        )}
-        <Menu.MenuItem onClick={onShowShortcuts} className="select-item text-sm">
-          <Keyboard className="icon-md" aria-hidden="true" />
-          {localize('com_shortcut_keyboard_shortcuts')}
-        </Menu.MenuItem>
-        {showLegalDivider && (hasTos || hasPrivacy) && <DropdownMenuSeparator />}
-        {hasTos && (
-          <Menu.MenuItem
-            onClick={() => openInNewTab(termsOfServiceURL)}
-            className="select-item text-sm"
-          >
-            <Scale className="icon-md" aria-hidden="true" />
-            {localize('com_ui_terms_of_service')}
-          </Menu.MenuItem>
-        )}
-        {hasPrivacy && (
-          <Menu.MenuItem
-            onClick={() => openInNewTab(privacyPolicyURL)}
-            className="select-item text-sm"
-          >
-            <ShieldCheck className="icon-md" aria-hidden="true" />
-            {localize('com_ui_privacy_policy')}
-          </Menu.MenuItem>
-        )}
-      </Menu.Menu>
-    </Menu.MenuProvider>
-  );
-}
 
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
-  const { user, logout } = useAuthContext();
-  const { data: startupConfig } = useGetStartupConfig();
+  const { user } = useAuthContext();
+  const { organizationName } = useAtomValue(izyActiveOrganizationAtom);
   const setShowSettings = useSetAtom(settingsOpenAtom);
   const setShowFiles = useSetAtom(showFilesDialogAtom);
   const setFilesDialogTrigger = useSetAtom(filesDialogTriggerAtom);
-  const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
   const [showArchived, setShowArchived] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -140,15 +55,14 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
         }}
       >
         <div className="text-text-secondary mr-2 ml-3 py-2 text-sm" role="note">
-          {user?.email ?? localize('com_nav_user')}
+          <div className="truncate">{user?.email ?? localize('com_nav_user')}</div>
+          {organizationName ? (
+            <div className="text-text-tertiary mt-0.5 truncate" title={organizationName}>
+              {localize('com_nav_active_organization', { organization: organizationName })}
+            </div>
+          ) : null}
         </div>
         <DropdownMenuSeparator />
-        {/* <HelpSubmenu
-          helpAndFaqURL={startupConfig?.helpAndFaqURL}
-          termsOfServiceURL={startupConfig?.interface?.termsOfService?.externalUrl}
-          privacyPolicyURL={startupConfig?.interface?.privacyPolicy?.externalUrl}
-          onShowShortcuts={() => setShowShortcutsDialog(true)}
-        /> */}
         <Menu.MenuItem onClick={() => setShowArchived(true)} className="select-item text-sm">
           <Archive className="icon-md" aria-hidden="true" />
           {localize('com_nav_archived_chats')}
@@ -176,11 +90,6 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        {/* <DropdownMenuSeparator />
-        <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
-          <LogOut className="icon-md" aria-hidden="true" />
-          {localize('com_nav_log_out')}
-        </Menu.MenuItem> */}
       </Menu.Menu>
       {showArchived && (
         <ArchivedChatsModal

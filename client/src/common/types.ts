@@ -639,6 +639,9 @@ export type NewConversationParams = {
   buildDefault?: boolean;
   keepAddedConvos?: boolean;
   disableParams?: boolean;
+  /** Replace the open `/c/{id}` chat with a blank one. Accidental callers
+   *  (spec remounts, default-preset effects) omit this and are ignored. */
+  abandonOpenChat?: boolean;
 };
 
 export type ConvoGenerator = (params: NewConversationParams) => void | t.TConversation;

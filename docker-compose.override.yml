@@ -34,14 +34,14 @@ services:
   #
   # Antes era `stdio`: LibreChat lanzaba `npx -y @izytesting/izytesting-mcp` una
   # vez por usuario, con la API key de esa persona en el entorno. Un servicio
-  # unico es lo que permite administrarlo de forma central; la identidad ya no
-  # va en el entorno sino en la cabecera de cada peticion (modo passthrough, el
-  # que trae por defecto el modo HTTP).
+  # unico se administra de forma central. La llave va en X-Izy-Mcp-Key y el
+  # proceso actua como el access token OIDC de quien llama. Sin AUTH_MODE,
+  # mcp-qa arranca en passthrough y no usa IZYTESTING_TOKEN.
   #
   # No publica puertos: solo se alcanza desde la red interna de compose, y
   # `mcpSettings.allowedAddresses` limita a que host puede hablar LibreChat.
-  # Corre el codigo del repo hermano, no el paquete de npm: el modo passthrough
-  # todavia no esta publicado. Cuando se publique, esto puede pasar a
+  # Corre el codigo local (o del repo hermano), no el paquete de npm. Cuando
+  # haga falta, esto puede pasar a
   # `npx -y --package=@izytesting/izytesting-mcp@<version> izytesting-mcp-http`
   # y el volumen sale.
   izytesting-mcp:
@@ -56,15 +56,15 @@ services:
         source: ../izytesting-mcp
         target: /app
         read_only: true
+    env_file:
+      - ../izytesting-mcp/.env
     environment:
       IZYTESTING_URL: ${IZYTESTING_URL}
       # Secreto compartido con LibreChat: responde "este cliente es LibreChat",
-      # no "quien es el usuario".
+      # no "quien es el usuario". El mismo valor va en librechat.yaml.
       IZYTESTING_HTTP_KEY: ${IZYTESTING_HTTP_KEY}
       IZYTESTING_HTTP_HOST: 0.0.0.0
       IZYTESTING_HTTP_PORT: "8787"
-      # Sin IZYTESTING_TOKEN a proposito: este servidor no tiene identidad
-      # propia, actua como quien llama.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

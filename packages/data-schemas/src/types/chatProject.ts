@@ -16,6 +16,7 @@ export interface IChatProject {
   createdAt?: Date;
   updatedAt?: Date;
   tenantId?: string;
+  organizationId?: string;
 }
 
 export interface IChatProjectDocument extends Omit<IChatProject, '_id'>, Document {}

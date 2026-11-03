@@ -19,7 +19,12 @@ export function atomWithLocalStorage<T>(
          * function, so this is inert for them.
          */
         const resolveDefault = () => normalizeSavedValue(defaultValue);
-        const savedValue = localStorage.getItem(key);
+        let savedValue: string | null = null;
+        try {
+          savedValue = localStorage.getItem(key);
+        } catch {
+          // Storage can be unavailable in private browsing or restricted embeds.
+        }
 
         if (savedValue === null) {
           const normalizedDefault = resolveDefault();
@@ -32,7 +37,11 @@ export function atomWithLocalStorage<T>(
             const parsedValue = JSON.parse(savedValue) as T;
             const normalizedValue = normalizeSavedValue(parsedValue);
             if (!Object.is(normalizedValue, parsedValue)) {
-              localStorage.setItem(key, JSON.stringify(normalizedValue));
+              try {
+                localStorage.setItem(key, JSON.stringify(normalizedValue));
+              } catch {
+                // Keep the in-memory value when storage is unavailable.
+              }
             }
             setSelf(normalizedValue);
           } catch (e) {
@@ -42,13 +51,21 @@ export function atomWithLocalStorage<T>(
             );
             /** The stored value is unusable, so the normalized default replaces it. */
             const normalizedDefault = resolveDefault();
-            localStorage.setItem(key, JSON.stringify(normalizedDefault));
+            try {
+              localStorage.setItem(key, JSON.stringify(normalizedDefault));
+            } catch {
+              // Keep the in-memory default when storage is unavailable.
+            }
             setSelf(normalizedDefault);
           }
         }
 
         onSet((newValue: T) => {
-          localStorage.setItem(key, JSON.stringify(newValue));
+          try {
+            localStorage.setItem(key, JSON.stringify(newValue));
+          } catch {
+            // Keep the in-memory value when storage is unavailable.
+          }
         });
       },
     ],

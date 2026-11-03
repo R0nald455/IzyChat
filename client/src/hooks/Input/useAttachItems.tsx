@@ -6,6 +6,7 @@ import {
   ImageUpIcon,
   FileType2Icon,
   FileImageIcon,
+  Paperclip,
   TerminalSquareIcon,
 } from 'lucide-react';
 import {
@@ -226,7 +227,7 @@ export default function useAttachItems({
           primary: true,
           icon:
             prefix === 'local' ? (
-              <FileImageIcon className="icon-md" aria-hidden="true" />
+              <Paperclip className="icon-md" aria-hidden="true" />
             ) : (
               <SharePointIcon className="icon-md" aria-hidden="true" />
             ),

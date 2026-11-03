@@ -177,6 +177,25 @@ describe('Conversation Operations', () => {
       expect(savedConvo?.title).toBe('Test Conversation');
     });
 
+    it('keeps the server-owned organizationId when a save unsets stale fields', async () => {
+      const organizationId = 'org-123';
+      const ctx = { ...mockCtx, organizationId };
+
+      await saveConvo(ctx, mockConversationData);
+      const result = await saveConvo(
+        ctx,
+        { ...mockConversationData, title: 'Updated Conversation' },
+        { unsetFields: { organizationId: 1 } },
+      );
+
+      expect(result?.conversationId).toBe(mockConversationData.conversationId);
+      const savedConvo = await Conversation.findOne({
+        conversationId: mockConversationData.conversationId,
+        user: mockCtx.userId,
+      });
+      expect(savedConvo?.organizationId).toBe(organizationId);
+    });
+
     it('rejects actor checkpoint ownership evidence through ordinary saves and imports', async () => {
       const forged = {
         agentEventActor: {

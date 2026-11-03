@@ -97,6 +97,7 @@ export * from './favorites';
 export * from './user';
 /* IzyTesting */
 export * from './izy/usage';
+export * from './izy/organization';
 /* Agent Plugins */
 export * from './plugins';
 /* Endpoints */

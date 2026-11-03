@@ -131,9 +131,19 @@ type MemoryArtifactRecord = Record<Tools.memory, MemoryArtifact>;
 /**
  * Creates a memory tool instance with user context
  */
+function requestOrganizationId(req?: {
+  izyOrganizationId?: string | null;
+}): string | null | undefined {
+  if (req == null || !Object.prototype.hasOwnProperty.call(req, 'izyOrganizationId')) {
+    return undefined;
+  }
+  return req.izyOrganizationId;
+}
+
 export const createMemoryTool = ({
   userId,
   agentId,
+  organizationId,
   setMemory,
   validKeys,
   charLimit,
@@ -146,6 +156,7 @@ export const createMemoryTool = ({
   userId: string | ObjectId;
   /** Agent partition to write to; omit for the shared personal pool */
   agentId?: string;
+  organizationId?: string | null;
   setMemory: MemoryMethods['setMemory'];
   validKeys?: string[];
   charLimit?: number;
@@ -254,7 +265,14 @@ export const createMemoryTool = ({
             },
           };
 
-          const result = await setMemory({ userId, key, value, tokenCount, agentId });
+          const result = await setMemory({
+            userId,
+            key,
+            value,
+            tokenCount,
+            agentId,
+            organizationId,
+          });
           if (result.ok) {
             if (tokenLimit) {
               currentTotalTokens = newTotalTokens;
@@ -306,6 +324,7 @@ export const createMemoryTool = ({
 export const createDeleteMemoryTool = ({
   userId,
   agentId,
+  organizationId,
   deleteMemory,
   validKeys,
   onWrite,
@@ -313,6 +332,7 @@ export const createDeleteMemoryTool = ({
   userId: string | ObjectId;
   /** Agent partition to delete from; omit for the shared personal pool */
   agentId?: string;
+  organizationId?: string | null;
   deleteMemory: MemoryMethods['deleteMemory'];
   validKeys?: string[];
   onWrite?: () => void;
@@ -337,7 +357,7 @@ export const createDeleteMemoryTool = ({
           },
         };
 
-        const result = await deleteMemory({ userId, key, agentId });
+        const result = await deleteMemory({ userId, key, agentId, organizationId });
         if (result.ok) {
           onWrite?.();
           logger.debug(`Memory deleted for key "${key}" for user "${userId}"`);
@@ -569,10 +589,11 @@ export function getRequestMemories({
     partitions = new Map();
     requestMemoriesCache.set(req, partitions);
   }
-  const partitionKey = agentId ?? '';
+  const organizationId = requestOrganizationId(req as { izyOrganizationId?: string | null });
+  const partitionKey = `${agentId ?? ''}:${organizationId ?? ''}`;
   let cached = partitions.get(partitionKey);
   if (!cached) {
-    cached = getFormattedMemories({ userId, agentId });
+    cached = getFormattedMemories({ userId, agentId, organizationId });
     partitions.set(partitionKey, cached);
   }
   return cached;
@@ -585,7 +606,8 @@ export function getRequestMemories({
  * seeded with the post-write usage total instead of a stale pre-write one.
  */
 export function invalidateRequestMemories(req: object, agentId?: string): void {
-  requestMemoriesCache.get(req)?.delete(agentId ?? '');
+  const organizationId = requestOrganizationId(req as { izyOrganizationId?: string | null });
+  requestMemoriesCache.get(req)?.delete(`${agentId ?? ''}:${organizationId ?? ''}`);
 }
 
 /**
@@ -671,6 +693,7 @@ export async function buildInlineMemoryTool({
     return createDeleteMemoryTool({
       userId,
       agentId: memoryAgentId,
+      organizationId: requestOrganizationId(req),
       deleteMemory: memoryMethods.deleteMemory,
       validKeys,
       onWrite: () => invalidateRequestMemories(req, memoryAgentId),
@@ -718,6 +741,7 @@ export async function buildInlineMemoryTool({
   return createMemoryTool({
     userId,
     agentId: memoryAgentId,
+    organizationId: requestOrganizationId(req),
     setMemory: memoryMethods.setMemory,
     validKeys,
     charLimit,
@@ -835,6 +859,7 @@ export async function processMemory({
     const memoryTool = createMemoryTool({
       userId,
       agentId,
+      organizationId: requestOrganizationId(req),
       tokenLimit,
       setMemory,
       validKeys,
@@ -845,6 +870,7 @@ export async function processMemory({
     const deleteMemoryTool = createDeleteMemoryTool({
       userId,
       agentId,
+      organizationId: requestOrganizationId(req),
       validKeys,
       deleteMemory,
     });
@@ -1090,13 +1116,21 @@ export async function createMemoryProcessor({
           agentId,
           getFormattedMemories: memoryMethods.getFormattedMemories,
         })
-      : memoryMethods.getFormattedMemories({ userId, agentId })
+      : memoryMethods.getFormattedMemories({
+          userId,
+          agentId,
+          organizationId: requestOrganizationId(req),
+        })
     ).catch((error) => {
       logger.error('[memory] Error loading automatic memory context', getSafeErrorMetadata(error));
       return undefined;
     }),
     hasActivePiiPatterns(filters?.memories?.pii)
-      ? memoryMethods.getUserMemories({ userId, agentId })
+      ? memoryMethods.getUserMemories({
+          userId,
+          agentId,
+          organizationId: requestOrganizationId(req),
+        })
       : Promise.resolve(undefined),
   ]);
   /** Without the current memory snapshot we cannot safely seed token limits

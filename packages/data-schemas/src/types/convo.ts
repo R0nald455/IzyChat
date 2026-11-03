@@ -263,6 +263,8 @@ export interface IConversation extends Document {
   titleSetByUser?: boolean;
   titleRevision?: number;
   user?: string;
+  /** IzyTesting organization uuid; history is listed and opened per user + organization. */
+  organizationId?: string;
   messages?: Types.ObjectId[];
   isTemporary?: boolean;
   // Fields provided by conversationPreset (adjust types as needed)

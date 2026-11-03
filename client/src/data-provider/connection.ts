@@ -1,7 +1,9 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useSetAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { QueryKeys, Time, dataService } from 'librechat-data-provider';
-import { logger } from '~/utils';
+import { izyActiveOrganizationAtom } from '~/store/izyOrganization';
+import { izyDiag, logger } from '~/utils';
 
 export const useHealthCheck = (isAuthenticated = false) => {
   const queryClient = useQueryClient();
@@ -87,44 +89,206 @@ export const useHealthCheck = (isAuthenticated = false) => {
  * tries a refresh; a 401 that still reaches here means the refreshed token is
  * revoked too, so `onRevoked` must end the session - otherwise every tick
  * would refresh again and the app would sit in an endless refresh loop.
+ * It also renews the server-side OpenID session when `/check` reports it gone.
  */
+const IZY_ORG_POLL_MS = 1000;
+const IZY_ORG_CHANGED_MESSAGE = 'izy:organization-changed';
+
+const IZY_ORG_SCOPED_QUERY_ROOTS = [
+  QueryKeys.allConversations,
+  QueryKeys.archivedConversations,
+  QueryKeys.pinnedConversations,
+  QueryKeys.searchConversations,
+  QueryKeys.conversation,
+  QueryKeys.messages,
+  QueryKeys.memories,
+  QueryKeys.projects,
+  QueryKeys.project,
+  QueryKeys.projectFiles,
+  QueryKeys.projectAvailableFiles,
+  QueryKeys.projectConversations,
+] as const;
+
+function resetLocationForOrganizationSwitch() {
+  const { pathname } = window.location;
+  if (pathname.startsWith('/c/') && !pathname.endsWith('/new')) {
+    window.history.pushState(null, '', '/c/new');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    return;
+  }
+  if (/^\/projects\/[^/]+/.test(pathname)) {
+    window.history.pushState(null, '', '/projects');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
+}
+
 export const useIzyTestingSessionGuard = (isAuthenticated = false, onRevoked?: () => void) => {
+  const queryClient = useQueryClient();
+  const setIzyOrganization = useSetAtom(izyActiveOrganizationAtom);
   const onRevokedRef = useRef(onRevoked);
   onRevokedRef.current = onRevoked;
+  const organizationIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (!isAuthenticated) {
+      organizationIdRef.current = undefined;
+      setIzyOrganization({ organizationId: null, organizationName: null });
       return;
     }
 
     let inFlight = false;
+    let pendingCheck = false;
     let revoked = false;
 
+    const dropOrganizationCaches = () => {
+      for (const queryKey of IZY_ORG_SCOPED_QUERY_ROOTS) {
+        queryClient.removeQueries([queryKey]);
+      }
+    };
+
+    const refetchOrganizationScopedQueries = () => {
+      void queryClient.refetchQueries({
+        type: 'active',
+        predicate: (query) => IZY_ORG_SCOPED_QUERY_ROOTS.some((root) => query.queryKey[0] === root),
+      });
+    };
+
+    const applyOrganization = (
+      organizationId?: string | null,
+      organizationName?: string | null,
+    ) => {
+      /** A missing org on one poll is a lookup miss, not a switch. Resetting to
+       *  /c/new here was wiping chats that had just been created. */
+      if (typeof organizationId !== 'string' || organizationId.trim() === '') {
+        izyDiag('org-skip-empty', {
+          previous: organizationIdRef.current,
+          incoming: organizationId ?? null,
+        });
+        return;
+      }
+      const next = organizationId.trim();
+      const nextName =
+        typeof organizationName === 'string' && organizationName.trim()
+          ? organizationName.trim()
+          : null;
+      if (organizationIdRef.current === undefined) {
+        console.log('[IzyWipe] applyOrganization init', {
+          href: window.location.href,
+          next,
+        });
+        organizationIdRef.current = next;
+        setIzyOrganization({ organizationId: next, organizationName: nextName });
+        return;
+      }
+      if (next === organizationIdRef.current) {
+        setIzyOrganization({ organizationId: next, organizationName: nextName });
+        return;
+      }
+      const previous = organizationIdRef.current;
+      izyDiag('org-switch', {
+        previous,
+        next,
+        pathname: window.location.pathname,
+      });
+      logger.log('IzyTesting organization changed; refreshing conversation history');
+      dropOrganizationCaches();
+      organizationIdRef.current = next;
+      setIzyOrganization({ organizationId: next, organizationName: nextName });
+      resetLocationForOrganizationSwitch();
+      refetchOrganizationScopedQueries();
+    };
+
+    const endSession = (reason: string) => {
+      revoked = true;
+      clearInterval(interval);
+      logger.log(reason);
+      onRevokedRef.current?.();
+    };
+
+    /**
+     * The server lost the OpenID tokens behind this bearer (session expiry or a
+     * restart); refreshing rebuilds them before the next message needs them.
+     * A failed refresh means IzyTesting no longer backs this session.
+     */
+    const recoverSession = () =>
+      dataService.recoverAuthSession().then(
+        (token) => {
+          if (!token) {
+            endSession('IzyBot session could not be renewed; logging out');
+          }
+        },
+        () => endSession('IzyBot session could not be renewed; logging out'),
+      );
+
     const checkSession = () => {
-      if (inFlight || revoked) {
+      if (revoked) {
+        return;
+      }
+      if (inFlight) {
+        pendingCheck = true;
         return;
       }
       inFlight = true;
       dataService
         .checkIzyTestingSession()
+        .then((response) => {
+          applyOrganization(response?.organizationId, response?.organizationName);
+          if (response?.refreshRequired === true) {
+            return recoverSession();
+          }
+        })
         .catch((error) => {
           if (error?.response?.status !== 401) {
             return;
           }
-          revoked = true;
-          clearInterval(interval);
-          logger.log('IzyTesting session revoked; logging out');
-          onRevokedRef.current?.();
+          endSession('IzyTesting session revoked; logging out');
         })
         .finally(() => {
           inFlight = false;
+          if (pendingCheck) {
+            pendingCheck = false;
+            checkSession();
+          }
         });
     };
 
-    const interval = setInterval(checkSession, 5000);
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+      checkSession();
+    };
 
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    const onParentMessage = (event: MessageEvent) => {
+      const payload = event.data as {
+        type?: string;
+        organizationId?: string;
+        organizationName?: string | null;
+      } | null;
+      if (payload?.type !== IZY_ORG_CHANGED_MESSAGE) {
+        return;
+      }
+      applyOrganization(payload.organizationId, payload.organizationName);
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+      checkSession();
+    }, IZY_ORG_POLL_MS);
+    checkSession();
+    window.addEventListener('focus', onVisibilityOrFocus);
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('message', onParentMessage);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('message', onParentMessage);
+    };
+  }, [isAuthenticated, queryClient, setIzyOrganization]);
 };
 
 export const useInteractionHealthCheck = () => {

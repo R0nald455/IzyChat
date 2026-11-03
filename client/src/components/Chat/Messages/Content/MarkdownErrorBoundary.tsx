@@ -5,9 +5,9 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
+import { CodeBlockProvider, TableExportProvider } from '~/Providers';
 import { langSubset, remarkApproxTilde } from '~/utils';
 import { reportBoundaryError } from '~/lib/rum/logs';
-import { CodeBlockProvider } from '~/Providers';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -60,34 +60,36 @@ class MarkdownErrorBoundary extends React.Component<
       ];
 
       return (
-        <CodeBlockProvider>
-          <ReactMarkdown
-            remarkPlugins={[
-              remarkApproxTilde,
+        <TableExportProvider>
+          <CodeBlockProvider>
+            <ReactMarkdown
+              remarkPlugins={[
+                remarkApproxTilde,
+                /** @ts-ignore */
+                supersub,
+                remarkGfm,
+              ]}
               /** @ts-ignore */
-              supersub,
-              remarkGfm,
-            ]}
-            /** @ts-ignore */
-            rehypePlugins={rehypePlugins}
-            components={
-              {
-                code: codeExecution ? code : codeNoExecution,
-                a,
-                p,
-                /** The recovery path is exactly where a generated reference
-                 *  must still resolve; the default `img` would send
-                 *  `![chart](chart.png)` to a page-relative URL. */
-                img,
-                table,
-              } as {
-                [nodeType: string]: React.ElementType;
+              rehypePlugins={rehypePlugins}
+              components={
+                {
+                  code: codeExecution ? code : codeNoExecution,
+                  a,
+                  p,
+                  /** The recovery path is exactly where a generated reference
+                   *  must still resolve; the default `img` would send
+                   *  `![chart](chart.png)` to a page-relative URL. */
+                  img,
+                  table,
+                } as {
+                  [nodeType: string]: React.ElementType;
+                }
               }
-            }
-          >
-            {content}
-          </ReactMarkdown>
-        </CodeBlockProvider>
+            >
+              {content}
+            </ReactMarkdown>
+          </CodeBlockProvider>
+        </TableExportProvider>
       );
     }
 

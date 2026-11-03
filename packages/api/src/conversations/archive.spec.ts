@@ -52,7 +52,7 @@ describe('createArchiveAllHandler', () => {
 
     await handler(mockRequest(), res);
 
-    expect(archiveAllConvos).toHaveBeenCalledWith('user-123');
+    expect(archiveAllConvos).toHaveBeenCalledWith('user-123', undefined);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ archivedCount: 4 });
   });

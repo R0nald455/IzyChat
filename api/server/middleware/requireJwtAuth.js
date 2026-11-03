@@ -7,6 +7,7 @@ const {
   createRequiredTwoFactorGate,
   clearCloudFrontCookies,
   tenantContextMiddleware,
+  attachIzyOrganization,
   getAuthFailureReasonCategory,
   buildSafeAuthLogContext,
   maybeRefreshCloudFrontAuthCookiesMiddleware,
@@ -205,7 +206,16 @@ const requireJwtAuth = (req, res, next) => {
           if (tenantErr) {
             return next(tenantErr);
           }
-          refreshCloudFrontCookies(req, res, next);
+          const attachOrg =
+            typeof attachIzyOrganization === 'function'
+              ? attachIzyOrganization
+              : (_req, _res, orgNext) => orgNext();
+          attachOrg(req, res, (orgErr) => {
+            if (orgErr) {
+              return next(orgErr);
+            }
+            refreshCloudFrontCookies(req, res, next);
+          });
         });
       });
     })(req, res, next);

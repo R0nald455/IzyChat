@@ -463,7 +463,7 @@ export default function useNewChat({
       ]),
     );
     removeTabAttachmentPresence(discardedFileIds, index);
-    newConversation();
+    newConversation({ abandonOpenChat: true });
     onNewChat?.();
   }, [
     queryClient,

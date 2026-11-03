@@ -908,6 +908,24 @@ describe('refreshController – OpenID path', () => {
     expect(res.send).not.toHaveBeenCalledWith({ code: 'OPENID_SESSION_MISSING' });
   });
 
+  it('rebuilds an expired session from the browser refresh cookie', async () => {
+    let persisted = false;
+    req.session.save = jest.fn((callback) => {
+      persisted = true;
+      callback();
+    });
+    req.session.reload = jest.fn((callback) =>
+      callback(persisted ? undefined : new Error('failed to load session')),
+    );
+
+    await refreshController(req, res);
+
+    expect(req.session.save).toHaveBeenCalled();
+    expectOpenIDRefreshGrant();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(clearOpenIDAuthTokens).not.toHaveBeenCalled();
+  });
+
   it('does not classify a session store outage as a missing session', async () => {
     req.session.reload = jest.fn((callback) => callback(new Error('connection unavailable')));
 
