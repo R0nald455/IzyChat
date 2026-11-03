@@ -15,6 +15,7 @@ const {
   storage,
   importFileFilter,
   createFileFilter,
+  isSecurityBlockedFilename,
 } = require('./multer');
 
 // Mock only the config service that requires external dependencies
@@ -50,6 +51,19 @@ describe('Multer Configuration', () => {
 
     // Clear mocks
     jest.clearAllMocks();
+  });
+
+  describe('security-blocked filenames', () => {
+    it.each(['report.ppt', 'deck.pptx', 'DECK.PPT', 'DECK.PPTX'])(
+      'blocks %s regardless of reported MIME type',
+      (filename) => {
+        expect(isSecurityBlockedFilename(filename)).toBe(true);
+      },
+    );
+
+    it('does not block an unrelated document extension', () => {
+      expect(isSecurityBlockedFilename('report.pdf')).toBe(false);
+    });
   });
 
   afterEach(() => {

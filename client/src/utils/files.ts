@@ -337,6 +337,8 @@ const SECURITY_BLOCKED_EXTENSIONS = new Set([
   'cmd',
   'com',
   'msi',
+  'ppt',
+  'pptx',
   'scr',
   'dll',
   'ps1',

@@ -327,6 +327,23 @@ describe('partitionUploadsByType', () => {
     expect(keptIndices).toEqual([0, 1]);
     expect(skipped).toEqual([{ index: 2, file: fileList[2], reason: 'securityBlocked' }]);
   });
+
+  it.each([
+    ['deck.ppt', 'application/vnd.ms-powerpoint'],
+    ['deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['DECK.PPT', ''],
+    ['DECK.PPTX', 'application/octet-stream'],
+  ])('skips restricted presentation extension %s before MIME validation', (name, type) => {
+    const fileList = [makeFile(name, type, 1024)];
+    const { keptIndices, skipped } = partitionUploadsByType({
+      fileList,
+      endpointFileConfig,
+      fileConfig,
+    });
+
+    expect(keptIndices).toEqual([]);
+    expect(skipped).toEqual([{ index: 0, file: fileList[0], reason: 'securityBlocked' }]);
+  });
 });
 
 describe('partitionUploads', () => {

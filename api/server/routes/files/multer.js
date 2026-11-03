@@ -49,6 +49,23 @@ const createStorage = ({ uniqueTempPath = false } = {}) =>
 
 const storage = createStorage();
 
+const SECURITY_BLOCKED_EXTENSIONS = new Set([
+  '.bat',
+  '.cmd',
+  '.com',
+  '.dll',
+  '.exe',
+  '.msi',
+  '.ppt',
+  '.pptx',
+  '.ps1',
+  '.scr',
+  '.vbs',
+]);
+
+const isSecurityBlockedFilename = (filename) =>
+  SECURITY_BLOCKED_EXTENSIONS.has(path.extname(filename || '').toLowerCase());
+
 const importFileFilter = (req, file, cb) => {
   if (file.mimetype === 'application/json') {
     cb(null, true);
@@ -92,6 +109,10 @@ const createFileFilter = (customFileConfig, resolveEndpoint) => {
   const fileFilter = (req, file, cb) => {
     if (!file) {
       return cb(createCustomError(400, 'No file provided'), false);
+    }
+
+    if (isSecurityBlockedFilename(file.originalname)) {
+      return cb(createCustomError(415, 'File type is blocked for security reasons'), false);
     }
 
     const mimeType = normalizeUploadMimeType(file);
@@ -151,4 +172,5 @@ module.exports = {
   storage,
   importFileFilter,
   createFileFilter,
+  isSecurityBlockedFilename,
 };
