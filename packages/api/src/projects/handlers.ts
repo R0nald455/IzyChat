@@ -44,6 +44,7 @@ interface ProjectUser {
 interface ProjectRequest extends Request {
   user?: ProjectUser;
   config?: AppConfig;
+  izyOrganizationId?: string | null;
 }
 
 type ProjectHandlerDependencies = Pick<
@@ -64,6 +65,8 @@ type ProjectHandlerDependencies = Pick<
 };
 
 const getUserId = (req: ProjectRequest): string => req.user?.id ?? req.user?._id?.toString() ?? '';
+
+const getOrganizationId = (req: ProjectRequest): string | null | undefined => req.izyOrganizationId;
 
 const normalizeString = (value: string | null | undefined): string =>
   typeof value === 'string' ? value.trim() : '';
@@ -150,13 +153,17 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
 } {
   async function listProjects(req: ProjectRequest, res: Response): Promise<Response> {
     try {
-      const result = await deps.listChatProjects(getUserId(req), {
-        cursor: queryString(req.query.cursor),
-        limit: normalizeLimit(req.query.limit),
-        sortBy: normalizeSortBy(req.query.sortBy),
-        sortDirection: normalizeSortDirection(req.query.sortDirection),
-        search: queryString(req.query.search),
-      });
+      const result = await deps.listChatProjects(
+        getUserId(req),
+        {
+          cursor: queryString(req.query.cursor),
+          limit: normalizeLimit(req.query.limit),
+          sortBy: normalizeSortBy(req.query.sortBy),
+          sortDirection: normalizeSortDirection(req.query.sortDirection),
+          search: queryString(req.query.search),
+        },
+        getOrganizationId(req),
+      );
       return res.status(200).json(result);
     } catch (error) {
       logger.error('[projects] Error listing projects', error);
@@ -179,6 +186,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
         getUserId(req),
         parsed.input,
         req.config?.projects,
+        getOrganizationId(req),
       );
       return res.status(201).json(project);
     } catch (error) {
@@ -203,6 +211,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
         getUserId(req),
         conversationId,
         projectId,
+        getOrganizationId(req),
       );
       if (!result) {
         return res.status(404).json({ error: CONVERSATION_NOT_FOUND });
@@ -224,7 +233,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
     }
 
     try {
-      const project = await deps.getChatProject(getUserId(req), projectId);
+      const project = await deps.getChatProject(getUserId(req), projectId, getOrganizationId(req));
       if (!project) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
       }
@@ -284,6 +293,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
         projectId,
         input,
         req.config?.projects,
+        getOrganizationId(req),
       );
       if (!project) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
@@ -307,7 +317,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
     }
 
     try {
-      const project = await deps.getChatProject(getUserId(req), projectId);
+      const project = await deps.getChatProject(getUserId(req), projectId, getOrganizationId(req));
       if (!project || !isSameChatProjectTenant(project.tenantId, req.user?.tenantId)) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
       }
@@ -339,7 +349,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
     try {
       parseAvailableProjectFilesCursor(cursor);
       const userId = getUserId(req);
-      const project = await deps.getChatProject(userId, projectId);
+      const project = await deps.getChatProject(userId, projectId, getOrganizationId(req));
       if (!project || !isSameChatProjectTenant(project.tenantId, req.user?.tenantId)) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
       }
@@ -380,6 +390,7 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
         projectId,
         fileId,
         req.config?.projects,
+        getOrganizationId(req),
       );
       if (!project) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
@@ -407,7 +418,12 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
     }
 
     try {
-      const project = await deps.removeChatProjectFile(getUserId(req), projectId, fileId);
+      const project = await deps.removeChatProjectFile(
+        getUserId(req),
+        projectId,
+        fileId,
+        getOrganizationId(req),
+      );
       if (!project) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
       }
@@ -425,7 +441,11 @@ export function createProjectHandlers(deps: ProjectHandlerDependencies): {
     }
 
     try {
-      const result = await deps.deleteChatProject(getUserId(req), projectId);
+      const result = await deps.deleteChatProject(
+        getUserId(req),
+        projectId,
+        getOrganizationId(req),
+      );
       if (!result.deletedCount) {
         return res.status(404).json({ error: PROJECT_NOT_FOUND });
       }

@@ -747,6 +747,7 @@
   "com_nav_about_diagnostics_copy": "Copy diagnostics",
   "com_nav_about_diagnostics_description": "Copy this block when opening a support issue so maintainers can identify the exact build you're running.",
   "com_nav_about_version": "Version",
+  "com_nav_active_organization": "Organization: {{organization}}",
   "com_nav_account_settings": "Account Settings",
   "com_nav_advanced_prompts": "Advanced prompts editor",
   "com_nav_advanced_prompts_desc": "Enable versioning and production control for prompts",

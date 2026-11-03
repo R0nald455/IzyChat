@@ -1634,6 +1634,7 @@ export function healthCheck(): Promise<string> {
 export function checkIzyTestingSession(): Promise<{
   valid: boolean;
   organizationId?: string | null;
+  organizationName?: string | null;
   refreshRequired?: boolean;
 }> {
   return request.get(endpoints.izyTestingSessionCheck());

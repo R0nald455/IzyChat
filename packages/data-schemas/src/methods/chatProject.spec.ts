@@ -61,12 +61,18 @@ afterEach(async () => {
   await File.deleteMany({});
 });
 
-async function createConversation(user: string, conversationId: string, title: string) {
+async function createConversation(
+  user: string,
+  conversationId: string,
+  title: string,
+  extra: Record<string, unknown> = {},
+) {
   return await Conversation.create({
     conversationId,
     title,
     user,
     endpoint: 'openAI',
+    ...extra,
   });
 }
 
@@ -553,6 +559,39 @@ describe('ChatProject methods', () => {
     expect(otherRead).toBeNull();
     expect(assignment).toBeNull();
     expect(deleteResult.deletedCount).toBe(0);
+  });
+
+  it('lists and creates projects scoped by organizationId', async () => {
+    const orgA = await methods.createChatProject(
+      user,
+      { name: 'Org A folder' },
+      undefined,
+      'org-a',
+    );
+    await methods.createChatProject(user, { name: 'Org B folder' }, undefined, 'org-b');
+
+    const listedA = await methods.listChatProjects(user, { sortBy: 'name' }, 'org-a');
+    const listedB = await methods.listChatProjects(user, { sortBy: 'name' }, 'org-b');
+    const listedEmpty = await methods.listChatProjects(user, { sortBy: 'name' }, 'org-c');
+
+    expect(listedA.projects.map((project) => project.name)).toEqual(['Org A folder']);
+    expect(listedB.projects.map((project) => project.name)).toEqual(['Org B folder']);
+    expect(listedEmpty.projects).toHaveLength(0);
+    expect(orgA.organizationId).toBe('org-a');
+  });
+
+  it('rejects assigning a conversation to a project in another organization', async () => {
+    const project = await methods.createChatProject(
+      user,
+      { name: 'Org A folder' },
+      undefined,
+      'org-a',
+    );
+    await createConversation(user, 'convo-org-b', 'Other org chat', { organizationId: 'org-b' });
+
+    await expect(
+      methods.assignConversationToProject(user, 'convo-org-b', project._id!.toString(), 'org-b'),
+    ).rejects.toThrow('Project not found');
   });
 });
 

@@ -2,7 +2,11 @@ jest.mock('@librechat/data-schemas', () => ({
   logger: { warn: jest.fn(), error: jest.fn(), debug: jest.fn(), info: jest.fn() },
 }));
 
-import { attachIzyOrganization, resetIzyOrganizationCache } from './organization';
+import {
+  attachIzyOrganization,
+  resetIzyOrganizationCache,
+  resolveIzyOrganization,
+} from './organization';
 import type { ServerRequest } from '~/types/http';
 
 describe('attachIzyOrganization', () => {
@@ -98,6 +102,44 @@ describe('attachIzyOrganization', () => {
     const second = makeReq();
     await attachIzyOrganization(second, {} as never, jest.fn());
     expect(second.izyOrganizationId).toBe('org-uuid');
+  });
+
+  it('attaches organization_name from IzyTesting', async () => {
+    process.env.IZYTESTING_URL = 'http://izytesting.example';
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ organization_id: 'org-uuid', organization_name: 'Acme' }),
+    });
+    const req = {
+      user: { id: 'user-1' },
+      session: { openidTokens: { accessToken: 'opaque-token' } },
+    } as unknown as ServerRequest;
+    await attachIzyOrganization(req, {} as never, jest.fn());
+    expect(req.izyOrganizationId).toBe('org-uuid');
+    expect(req.izyOrganizationName).toBe('Acme');
+  });
+
+  it('refetches when skipCache is set even if a value is cached', async () => {
+    process.env.IZYTESTING_URL = 'http://izytesting.example';
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ organization_id: 'org-uuid', organization_name: 'Acme' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ organization_id: 'org-new', organization_name: 'New Co' }),
+      });
+    const makeReq = () =>
+      ({
+        user: { id: 'user-1' },
+        session: { openidTokens: { accessToken: 'opaque-token' } },
+      }) as unknown as ServerRequest;
+    await attachIzyOrganization(makeReq(), {} as never, jest.fn());
+    const resolved = await resolveIzyOrganization(makeReq(), { skipCache: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(resolved.organizationId).toBe('org-new');
+    expect(resolved.organizationName).toBe('New Co');
   });
 
   it('does not fail-closed when the org has never been resolved', async () => {

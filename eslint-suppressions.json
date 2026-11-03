@@ -1096,7 +1096,7 @@
       "count": 3
     },
     "shadcn/no-unknown-classes": {
-      "count": 2
+      "count": 1
     }
   },
   "client/src/components/Nav/ExportConversation/ExportModal.tsx": {

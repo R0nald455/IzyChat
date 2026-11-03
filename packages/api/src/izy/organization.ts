@@ -5,10 +5,23 @@ import type { ServerRequest } from '~/types/http';
 const DEFAULT_CACHE_TTL_MS = 30 * 1000;
 const DEFAULT_TIMEOUT_MS = 4000;
 
-type OrgCacheEntry = { organizationId: string | null; expiresAt: number };
+type OrgCacheEntry = {
+  organizationId: string | null;
+  organizationName: string | null;
+  expiresAt: number;
+};
+
+export type ResolvedIzyOrganization = {
+  organizationId: string | null | undefined;
+  organizationName: string | null;
+};
+
+export type ResolveIzyOrganizationOptions = {
+  skipCache?: boolean;
+};
 
 const orgCache = new Map<string, OrgCacheEntry>();
-const inflight = new Map<string, Promise<string | null | undefined>>();
+const inflight = new Map<string, Promise<ResolvedIzyOrganization>>();
 
 export function resetIzyOrganizationCache(): void {
   orgCache.clear();
@@ -50,20 +63,36 @@ function cacheKey(req: ServerRequest): string | undefined {
   return req.user?.id ?? req.user?._id?.toString?.();
 }
 
-function rememberOrganization(userId: string, organizationId: string | null): string | null {
-  orgCache.set(userId, { organizationId, expiresAt: Date.now() + cacheTtlMs() });
-  return organizationId;
+function rememberOrganization(
+  userId: string,
+  organization: { organizationId: string | null; organizationName: string | null },
+): { organizationId: string | null; organizationName: string | null } {
+  orgCache.set(userId, { ...organization, expiresAt: Date.now() + cacheTtlMs() });
+  return organization;
 }
 
-function staleOrganization(userId: string): string | null | undefined {
+function staleOrganization(userId: string): ResolvedIzyOrganization {
   const cached = orgCache.get(userId);
-  return cached ? cached.organizationId : undefined;
+  if (!cached) {
+    return { organizationId: undefined, organizationName: null };
+  }
+  return {
+    organizationId: cached.organizationId,
+    organizationName: cached.organizationName,
+  };
 }
 
-async function fetchActiveOrganization(accessToken: string): Promise<string | null> {
+function parseOrganizationName(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+async function fetchActiveOrganization(accessToken: string): Promise<{
+  organizationId: string | null;
+  organizationName: string | null;
+}> {
   const base = izyTestingBaseUrl();
   if (!base) {
-    return null;
+    return { organizationId: null, organizationName: null };
   }
   const url = `${base}/usuario/active-organization/`;
   const parsedTimeout = Number(process.env.IZYTESTING_ORG_TIMEOUT_MS);
@@ -80,9 +109,27 @@ async function fetchActiveOrganization(accessToken: string): Promise<string | nu
   if (!response.ok) {
     throw new Error(`IzyTesting active-organization failed (${response.status})`);
   }
-  const body = (await response.json()) as { organization_id?: string | null };
+  const body = (await response.json()) as {
+    organization_id?: string | null;
+    organization_name?: string | null;
+  };
   const organizationId = body?.organization_id;
-  return typeof organizationId === 'string' && organizationId.trim() ? organizationId.trim() : null;
+  return {
+    organizationId:
+      typeof organizationId === 'string' && organizationId.trim() ? organizationId.trim() : null,
+    organizationName: parseOrganizationName(body?.organization_name),
+  };
+}
+
+function applyResolvedOrganization(req: ServerRequest, resolved: ResolvedIzyOrganization): void {
+  if (resolved.organizationId !== undefined) {
+    req.izyOrganizationId = resolved.organizationId;
+  }
+  if (resolved.organizationName != null && resolved.organizationName !== '') {
+    req.izyOrganizationName = resolved.organizationName;
+  } else if (resolved.organizationId !== undefined) {
+    req.izyOrganizationName = null;
+  }
 }
 
 /**
@@ -90,66 +137,86 @@ async function fetchActiveOrganization(accessToken: string): Promise<string | nu
  * `null` — IzyTesting confirmó que no hay membresía default.
  * `undefined` — no se pudo resolver; el request no debe filtrar vacío ni pisar el cache.
  */
-export async function resolveIzyOrganizationId(
+export async function resolveIzyOrganization(
   req: ServerRequest,
-): Promise<string | null | undefined> {
+  options?: ResolveIzyOrganizationOptions,
+): Promise<ResolvedIzyOrganization> {
   const userId = cacheKey(req);
   const path = req.method && req.originalUrl ? `${req.method} ${req.originalUrl}` : undefined;
+  const skipCache = options?.skipCache === true;
   if (!userId) {
     logger.warn('[IzyWipe] [izy/organization] no userId', { path });
-    return undefined;
+    return { organizationId: undefined, organizationName: null };
   }
-  const cached = orgCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) {
-    logger.debug('[IzyWipe] [izy/organization] cache-hit', {
-      userId,
-      path,
-      organizationId: cached.organizationId,
-    });
-    return cached.organizationId;
+  if (!skipCache) {
+    const cached = orgCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      logger.debug('[IzyWipe] [izy/organization] cache-hit', {
+        userId,
+        path,
+        organizationId: cached.organizationId,
+      });
+      return {
+        organizationId: cached.organizationId,
+        organizationName: cached.organizationName,
+      };
+    }
+
+    const pending = inflight.get(userId);
+    if (pending) {
+      return pending;
+    }
   }
 
-  const pending = inflight.get(userId);
-  if (pending) {
-    return pending;
-  }
-
-  const load = (async (): Promise<string | null | undefined> => {
+  const load = (async (): Promise<ResolvedIzyOrganization> => {
     const accessToken = getOpenIdAccessToken(req);
     if (!accessToken) {
       const stale = staleOrganization(userId);
       logger.warn('[IzyWipe] [izy/organization] no-openid-token', {
         userId,
         path,
-        stale: stale ?? 'unset',
+        stale: stale.organizationId ?? 'unset',
       });
       return stale;
     }
     try {
-      const organizationId = rememberOrganization(
+      const fetched = rememberOrganization(userId, await fetchActiveOrganization(accessToken));
+      logger.warn('[IzyWipe] [izy/organization] fetched', {
         userId,
-        await fetchActiveOrganization(accessToken),
-      );
-      logger.warn('[IzyWipe] [izy/organization] fetched', { userId, path, organizationId });
-      return organizationId;
+        path,
+        organizationId: fetched.organizationId,
+      });
+      return fetched;
     } catch (error) {
       const stale = staleOrganization(userId);
       logger.warn('[IzyWipe] [izy/organization] fetch-failed', {
         userId,
         path,
-        stale: stale ?? 'unset',
+        stale: stale.organizationId ?? 'unset',
         error,
       });
       return stale;
     }
   })();
 
-  inflight.set(userId, load);
+  if (!skipCache) {
+    inflight.set(userId, load);
+  }
   try {
     return await load;
   } finally {
-    inflight.delete(userId);
+    if (!skipCache) {
+      inflight.delete(userId);
+    }
   }
+}
+
+export async function resolveIzyOrganizationId(
+  req: ServerRequest,
+  options?: ResolveIzyOrganizationOptions,
+): Promise<string | null | undefined> {
+  const resolved = await resolveIzyOrganization(req, options);
+  return resolved.organizationId;
 }
 
 /**
@@ -167,17 +234,21 @@ export async function attachIzyOrganization(
     return;
   }
   try {
-    const organizationId = await resolveIzyOrganizationId(req);
+    const resolved = await resolveIzyOrganization(req);
     logger.debug('[IzyWipe] [izy/organization] attach', {
       path: `${req.method} ${req.originalUrl}`,
       userId: cacheKey(req),
-      organizationId: organizationId === undefined ? 'unset' : organizationId,
+      organizationId: resolved.organizationId === undefined ? 'unset' : resolved.organizationId,
     });
-    if (organizationId !== undefined) {
-      req.izyOrganizationId = organizationId;
-    }
+    applyResolvedOrganization(req, resolved);
     next();
   } catch (error) {
     next(error);
   }
+}
+
+export async function refreshIzyOrganization(req: ServerRequest): Promise<ResolvedIzyOrganization> {
+  const resolved = await resolveIzyOrganization(req, { skipCache: true });
+  applyResolvedOrganization(req, resolved);
+  return resolved;
 }

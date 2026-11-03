@@ -63,6 +63,8 @@ export type ServerRequest = Request<unknown, unknown, RequestBody> & {
    *  is off or the org has not been resolved yet; `null` only when IzyTesting confirmed
    *  there is no default membership. */
   izyOrganizationId?: string | null;
+  /** Display name of the active IzyTesting organization, when the lookup returned one. */
+  izyOrganizationName?: string | null;
   /** Trusted snapshot used to keep a request-scoped override out of saved conversation defaults. */
   reasoningOverrideBase?: {
     key: TReasoningOverride['key'];

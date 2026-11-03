@@ -30,7 +30,10 @@ async function mapEmailsToOrganizations(emails) {
       body: JSON.stringify({ emails: chunk }),
     });
     if (!response.ok) {
-      throw new Error(`IzyTesting lookup failed (${response.status})`);
+      const detail = await response.text();
+      throw new Error(
+        `IzyTesting lookup failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`,
+      );
     }
     const body = await response.json();
     Object.assign(organizations, body.organizations ?? {});
@@ -43,16 +46,23 @@ async function mapEmailsToOrganizations(emails) {
     await connect();
     const Conversation = mongoose.connection.collection('conversations');
     const MemoryEntry = mongoose.connection.collection('memoryentries');
+    const ChatProject = mongoose.connection.collection('chatprojects');
     const User = mongoose.connection.collection('users');
-
-    const userIds = await Conversation.distinct('user', {
+    const missingOrg = {
       $or: [
         { organizationId: { $exists: false } },
         { organizationId: null },
         { organizationId: '' },
       ],
-    });
-    console.log(`Conversations without organizationId for ${userIds.length} user(s)`);
+    };
+
+    const userIds = [
+      ...new Set([
+        ...(await Conversation.distinct('user', missingOrg)),
+        ...(await ChatProject.distinct('user', missingOrg)),
+      ]),
+    ];
+    console.log(`Documents without organizationId for ${userIds.length} user(s)`);
 
     const users = await User.find({
       _id: {
@@ -89,7 +99,31 @@ async function mapEmailsToOrganizations(emails) {
     const organizations = await mapEmailsToOrganizations(emails);
     let updatedConvos = 0;
     let updatedMemories = 0;
+    let updatedProjects = 0;
     let skippedUsers = 0;
+    let ambiguousProjects = 0;
+
+    async function organizationForProject(project, fallbackOrganizationId) {
+      const projectId = String(project._id);
+      const counts = await Conversation.aggregate([
+        {
+          $match: {
+            user: project.user,
+            chatProjectId: projectId,
+            organizationId: { $type: 'string', $ne: '' },
+          },
+        },
+        { $group: { _id: '$organizationId', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]).toArray();
+      if (counts.length > 1) {
+        ambiguousProjects += 1;
+      }
+      if (counts[0]?._id) {
+        return counts[0]._id;
+      }
+      return fallbackOrganizationId;
+    }
 
     for (const [userId, email] of emailByUserId.entries()) {
       const organizationId = organizations[email];
@@ -100,23 +134,20 @@ async function mapEmailsToOrganizations(emails) {
       if (dryRun) {
         const count = await Conversation.countDocuments({
           user: userId,
-          $or: [
-            { organizationId: { $exists: false } },
-            { organizationId: null },
-            { organizationId: '' },
-          ],
+          ...missingOrg,
         });
         updatedConvos += count;
+        const projectCount = await ChatProject.countDocuments({
+          user: userId,
+          ...missingOrg,
+        });
+        updatedProjects += projectCount;
         continue;
       }
       const convoResult = await Conversation.updateMany(
         {
           user: userId,
-          $or: [
-            { organizationId: { $exists: false } },
-            { organizationId: null },
-            { organizationId: '' },
-          ],
+          ...missingOrg,
         },
         { $set: { organizationId } },
       );
@@ -124,19 +155,30 @@ async function mapEmailsToOrganizations(emails) {
       const memoryResult = await MemoryEntry.updateMany(
         {
           userId: new mongoose.Types.ObjectId(userId),
-          $or: [
-            { organizationId: { $exists: false } },
-            { organizationId: null },
-            { organizationId: '' },
-          ],
+          ...missingOrg,
         },
         { $set: { organizationId } },
       );
       updatedMemories += memoryResult.modifiedCount ?? 0;
+
+      const projects = await ChatProject.find({ user: userId, ...missingOrg })
+        .project({ _id: 1, user: 1 })
+        .toArray();
+      for (const project of projects) {
+        const projectOrg = await organizationForProject(project, organizationId);
+        if (!projectOrg) {
+          continue;
+        }
+        const result = await ChatProject.updateOne(
+          { _id: project._id, ...missingOrg },
+          { $set: { organizationId: projectOrg } },
+        );
+        updatedProjects += result.modifiedCount ?? 0;
+      }
     }
 
     console.log(
-      `${dryRun ? 'Dry run' : 'Backfill'} complete. convos=${updatedConvos} memories=${updatedMemories} skippedUsers=${skippedUsers}`,
+      `${dryRun ? 'Dry run' : 'Backfill'} complete. convos=${updatedConvos} memories=${updatedMemories} projects=${updatedProjects} skippedUsers=${skippedUsers} ambiguousProjects=${ambiguousProjects}`,
     );
     process.exitCode = 0;
   } catch (error) {

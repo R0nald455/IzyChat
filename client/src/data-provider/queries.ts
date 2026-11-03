@@ -38,6 +38,7 @@ import {
   isNotFoundError,
   toSidebarConversation,
 } from '~/utils';
+import { useIzyOrganizationQueryScope } from '~/store/izyOrganization';
 
 export const useGetPresetsQuery = (
   config?: UseQueryOptions<TPreset[]>,
@@ -191,6 +192,7 @@ export const useConversationsInfiniteQuery = (
     hasFiles,
     sharedOnly,
   } = params;
+  const izyOrganizationId = useIzyOrganizationQueryScope();
 
   return useInfiniteQuery<ConversationListResponse>({
     /* Every filter belongs in the key: a facet left out would serve one filter's pages
@@ -210,6 +212,7 @@ export const useConversationsInfiniteQuery = (
         endpoints,
         hasFiles,
         sharedOnly,
+        izyOrganizationId,
       },
     ],
     queryFn: async ({ pageParam }) => {
@@ -240,7 +243,7 @@ export const useConversationsInfiniteQuery = (
       };
     },
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    keepPreviousData: true,
+    keepPreviousData: !izyOrganizationId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     cacheTime: 30 * 60 * 1000, // 30 minutes
     ...config,
@@ -265,7 +268,8 @@ export const usePinnedConversationsQuery = (
   config?: UseQueryOptions<ConversationListResponse>,
 ): QueryObserverResult<ConversationListResponse> => {
   const queryClient = useQueryClient();
-  const queryKey = [QueryKeys.pinnedConversations];
+  const izyOrganizationId = useIzyOrganizationQueryScope();
+  const queryKey = [QueryKeys.pinnedConversations, { izyOrganizationId }];
 
   return useQuery<ConversationListResponse>(
     queryKey,

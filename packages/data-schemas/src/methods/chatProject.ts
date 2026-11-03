@@ -8,6 +8,11 @@ import {
 import type { FilterQuery, Model, SortOrder, Types } from 'mongoose';
 import type { TChatProjectsConfig } from 'librechat-data-provider';
 import type { IChatProject, IChatProjectDocument, IConversation, IMongoFile } from '~/types';
+import {
+  organizationLookupScope,
+  organizationOnInsert,
+  organizationScope,
+} from '~/utils/organizationScope';
 import { buildRetentionVisibilityFilter } from '~/utils/retention';
 import { isValidObjectIdString } from '~/utils/objectId';
 import { escapeRegExp } from '~/utils/string';
@@ -57,36 +62,54 @@ export interface ChatProjectMethods {
     user: string,
     input: CreateChatProjectInput,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject>;
-  getChatProject(user: string, projectId: string): Promise<IChatProject | null>;
+  getChatProject(
+    user: string,
+    projectId: string,
+    organizationId?: string | null,
+  ): Promise<IChatProject | null>;
   listChatProjects(
     user: string,
     options?: ListChatProjectsOptions,
+    organizationId?: string | null,
   ): Promise<ListChatProjectsResult>;
   updateChatProject(
     user: string,
     projectId: string,
     input: UpdateChatProjectInput,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject | null>;
-  deleteChatProject(user: string, projectId: string): Promise<DeleteChatProjectResult>;
+  deleteChatProject(
+    user: string,
+    projectId: string,
+    organizationId?: string | null,
+  ): Promise<DeleteChatProjectResult>;
   addChatProjectFile(
     user: string,
     projectId: string,
     fileId: string,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject | null>;
   removeChatProjectFile(
     user: string,
     projectId: string,
     fileId: string,
+    organizationId?: string | null,
   ): Promise<IChatProject | null>;
   assignConversationToProject(
     user: string,
     conversationId: string,
     projectId: string | null,
+    organizationId?: string | null,
   ): Promise<AssignConversationToProjectResult | null>;
-  refreshChatProjectStats(user: string, projectId: string): Promise<IChatProject | null>;
+  refreshChatProjectStats(
+    user: string,
+    projectId: string,
+    organizationId?: string | null,
+  ): Promise<IChatProject | null>;
 }
 
 type ProjectCursor = {
@@ -240,13 +263,28 @@ function createCursorFilter(
   return { $or: branches } as FilterQuery<IChatProjectDocument>;
 }
 
+function withOrganizationFilter<T>(
+  filter: FilterQuery<T>,
+  organizationId?: string | null,
+  lookup = false,
+): FilterQuery<T> {
+  const organizationFilter = lookup
+    ? organizationLookupScope<T>(organizationId)
+    : organizationScope<T>(organizationId);
+  if (Object.keys(organizationFilter).length === 0) {
+    return filter;
+  }
+  return { ...filter, ...organizationFilter };
+}
+
 function visibleProjectConversationFilter(
   user: string,
   projectId: string,
+  organizationId?: string | null,
 ): FilterQuery<IConversation> {
   return {
     $and: [
-      { user, chatProjectId: projectId },
+      withOrganizationFilter({ user, chatProjectId: projectId }, organizationId),
       { $or: [{ isArchived: false }, { isArchived: { $exists: false } }] },
       buildRetentionVisibilityFilter<IConversation>(),
     ],
@@ -270,6 +308,7 @@ export async function refreshChatProjectStatsForUser(
   mongoose: typeof import('mongoose'),
   user: string,
   projectId: string,
+  organizationId?: string | null,
 ): Promise<IChatProject | null> {
   if (!isValidObjectIdString(projectId)) {
     return null;
@@ -277,8 +316,12 @@ export async function refreshChatProjectStatsForUser(
 
   const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
   const Conversation = mongoose.models.Conversation as Model<IConversation>;
-  const projectFilter = { _id: new mongoose.Types.ObjectId(projectId), user };
-  const conversationFilter = visibleProjectConversationFilter(user, projectId);
+  const projectFilter = withOrganizationFilter(
+    { _id: new mongoose.Types.ObjectId(projectId), user },
+    organizationId,
+    true,
+  );
+  const conversationFilter = visibleProjectConversationFilter(user, projectId, organizationId);
 
   for (let attempt = 0; attempt < PROJECT_STATS_REFRESH_MAX_ATTEMPTS; attempt++) {
     const snapshot = await ChatProject.findOne(projectFilter)
@@ -386,6 +429,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     user: string,
     input: CreateChatProjectInput,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject> {
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
     const sanitized = sanitizeProjectInput(input, limits);
@@ -399,32 +443,46 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       conversationCount: 0,
       lastConversationAt: null,
       lastConversationId: null,
+      ...organizationOnInsert(organizationId),
     });
     return project.toObject() as IChatProject;
   }
 
-  async function getChatProject(user: string, projectId: string): Promise<IChatProject | null> {
+  async function getChatProject(
+    user: string,
+    projectId: string,
+    organizationId?: string | null,
+  ): Promise<IChatProject | null> {
     if (!isValidObjectIdString(projectId)) {
       return null;
     }
 
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
-    return await ChatProject.findOne({
-      _id: new mongoose.Types.ObjectId(projectId),
-      user,
-    }).lean<IChatProject>();
+    return await ChatProject.findOne(
+      withOrganizationFilter(
+        {
+          _id: new mongoose.Types.ObjectId(projectId),
+          user,
+        },
+        organizationId,
+        true,
+      ),
+    ).lean<IChatProject>();
   }
 
   async function listChatProjects(
     user: string,
     options: ListChatProjectsOptions = {},
+    organizationId?: string | null,
   ): Promise<ListChatProjectsResult> {
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
     const limit = normalizeLimit(options.limit);
     const sortBy = normalizeSortBy(options.sortBy);
     const sortDirection = normalizeSortDirection(options.sortDirection);
     const sortOrder: SortOrder = sortDirection === 'asc' ? 1 : -1;
-    const filters: FilterQuery<IChatProjectDocument>[] = [{ user }];
+    const filters: FilterQuery<IChatProjectDocument>[] = [
+      withOrganizationFilter({ user }, organizationId),
+    ];
 
     if (options.search?.trim()) {
       const searchRegex = { $regex: escapeRegExp(options.search.trim()), $options: 'i' };
@@ -453,6 +511,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
           description: 1,
           user: 1,
           tenantId: 1,
+          organizationId: 1,
           conversationCount: 1,
           lastConversationAt: 1,
           lastConversationId: 1,
@@ -482,6 +541,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     projectId: string,
     input: UpdateChatProjectInput,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject | null> {
     if (!isValidObjectIdString(projectId)) {
       return null;
@@ -500,7 +560,11 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     if (input.description !== undefined) {
       update.description = input.description?.trim().slice(0, maxDescriptionLength) ?? '';
     }
-    const ownerFilter = { _id: new mongoose.Types.ObjectId(projectId), user };
+    const ownerFilter = withOrganizationFilter(
+      { _id: new mongoose.Types.ObjectId(projectId), user },
+      organizationId,
+      true,
+    );
     const expected = input.contextRevision;
     const hasExpected = typeof expected === 'number' && Number.isInteger(expected);
     const filter = hasExpected ? { ...ownerFilter, contextRevision: expected } : ownerFilter;
@@ -508,7 +572,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       if (!hasExpected) {
         return null;
       }
-      const current = await getChatProject(user, projectId);
+      const current = await getChatProject(user, projectId, organizationId);
       if (current) {
         throw new Error(CHAT_PROJECT_CONFLICT);
       }
@@ -529,7 +593,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       }
     }
     if (Object.keys(update).length === 0) {
-      const current = await getChatProject(user, projectId);
+      const current = await getChatProject(user, projectId, organizationId);
       if (current && hasExpected && current.contextRevision !== expected) {
         throw new Error(CHAT_PROJECT_CONFLICT);
       }
@@ -548,9 +612,10 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     projectId: string,
     fileId: string,
     limits?: Partial<ChatProjectLimits>,
+    organizationId?: string | null,
   ): Promise<IChatProject | null> {
     const { maxFiles } = resolveChatProjectLimits(limits);
-    const project = await getChatProject(user, projectId);
+    const project = await getChatProject(user, projectId, organizationId);
     if (!project) {
       return null;
     }
@@ -627,7 +692,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       if (updated) {
         return await dropIfFileDeleted(updated);
       }
-      const current = await getChatProject(user, projectId);
+      const current = await getChatProject(user, projectId, organizationId);
       if (current?.file_ids?.includes(fileId)) {
         return current;
       }
@@ -646,22 +711,28 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     user: string,
     projectId: string,
     fileId: string,
+    organizationId?: string | null,
   ): Promise<IChatProject | null> {
     if (!isValidObjectIdString(projectId)) {
       return null;
     }
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
     const project = await ChatProject.findOneAndUpdate(
-      { _id: new mongoose.Types.ObjectId(projectId), user, file_ids: fileId },
+      withOrganizationFilter(
+        { _id: new mongoose.Types.ObjectId(projectId), user, file_ids: fileId },
+        organizationId,
+        true,
+      ),
       { $pull: { file_ids: fileId }, $inc: { contextRevision: 1 } },
       { new: true },
     ).lean<IChatProject>();
-    return project ?? getChatProject(user, projectId);
+    return project ?? getChatProject(user, projectId, organizationId);
   }
 
   async function deleteChatProject(
     user: string,
     projectId: string,
+    organizationId?: string | null,
   ): Promise<DeleteChatProjectResult> {
     if (!isValidObjectIdString(projectId)) {
       return { deletedCount: 0, modifiedCount: 0 };
@@ -669,14 +740,18 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
 
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
     const Conversation = mongoose.models.Conversation as Model<IConversation>;
-    const projectFilter = { _id: new mongoose.Types.ObjectId(projectId), user };
+    const projectFilter = withOrganizationFilter(
+      { _id: new mongoose.Types.ObjectId(projectId), user },
+      organizationId,
+      true,
+    );
     const project = await ChatProject.findOne(projectFilter).select('_id').lean<IChatProject>();
     if (!project) {
       return { deletedCount: 0, modifiedCount: 0 };
     }
 
     const conversationResult = await Conversation.updateMany(
-      { user, chatProjectId: projectId },
+      withOrganizationFilter({ user, chatProjectId: projectId }, organizationId),
       { $unset: { chatProjectId: '' } },
     );
     const deleteResult = await ChatProject.deleteOne(projectFilter);
@@ -691,10 +766,13 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     user: string,
     conversationId: string,
     projectId: string | null,
+    organizationId?: string | null,
   ): Promise<AssignConversationToProjectResult | null> {
     const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
     const Conversation = mongoose.models.Conversation as Model<IConversation>;
-    const conversation = await Conversation.findOne({ user, conversationId }).lean<IConversation>();
+    const conversation = await Conversation.findOne(
+      withOrganizationFilter({ user, conversationId }, organizationId, true),
+    ).lean<IConversation>();
     if (!conversation) {
       return null;
     }
@@ -704,13 +782,30 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       if (!isValidObjectIdString(normalizedProjectId)) {
         throw new Error('Project not found');
       }
-      const project = await ChatProject.findOne({
-        _id: new mongoose.Types.ObjectId(normalizedProjectId),
-        user,
-      })
-        .select('_id')
+      const project = await ChatProject.findOne(
+        withOrganizationFilter(
+          {
+            _id: new mongoose.Types.ObjectId(normalizedProjectId),
+            user,
+          },
+          organizationId,
+          true,
+        ),
+      )
+        .select('_id organizationId')
         .lean<IChatProject>();
       if (!project) {
+        throw new Error('Project not found');
+      }
+      const conversationOrg = conversation.organizationId;
+      const projectOrg = project.organizationId;
+      if (
+        typeof conversationOrg === 'string' &&
+        conversationOrg &&
+        typeof projectOrg === 'string' &&
+        projectOrg &&
+        conversationOrg !== projectOrg
+      ) {
         throw new Error('Project not found');
       }
     }
@@ -734,7 +829,9 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
       [previousProjectId, normalizedProjectId].filter((id): id is string => Boolean(id)),
     );
     await Promise.all(
-      [...projectIds].map((id) => refreshChatProjectStatsForUser(mongoose, user, id)),
+      [...projectIds].map((id) =>
+        refreshChatProjectStatsForUser(mongoose, user, id, organizationId),
+      ),
     );
 
     return {
@@ -747,8 +844,9 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
   async function refreshChatProjectStats(
     user: string,
     projectId: string,
+    organizationId?: string | null,
   ): Promise<IChatProject | null> {
-    return await refreshChatProjectStatsForUser(mongoose, user, projectId);
+    return await refreshChatProjectStatsForUser(mongoose, user, projectId, organizationId);
   }
 
   return {

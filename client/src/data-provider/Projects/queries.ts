@@ -14,7 +14,7 @@ import type {
   QueryObserverResult,
   UseQueryOptions,
 } from '@tanstack/react-query';
-
+import { useIzyOrganizationQueryScope } from '~/store/izyOrganization';
 import { ProjectNamesContext } from '~/Providers/ProjectNamesContext';
 
 export const useProjectsInfiniteQuery = (
@@ -22,9 +22,10 @@ export const useProjectsInfiniteQuery = (
   config?: UseInfiniteQueryOptions<ProjectListResponse, unknown>,
 ) => {
   const { sortBy, sortDirection, search, limit } = params;
+  const izyOrganizationId = useIzyOrganizationQueryScope();
 
   return useInfiniteQuery<ProjectListResponse>({
-    queryKey: [QueryKeys.projects, { sortBy, sortDirection, search, limit }],
+    queryKey: [QueryKeys.projects, { sortBy, sortDirection, search, limit, izyOrganizationId }],
     queryFn: ({ pageParam }) =>
       dataService.listProjects({
         sortBy,
@@ -34,7 +35,7 @@ export const useProjectsInfiniteQuery = (
         cursor: pageParam?.toString(),
       }),
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    keepPreviousData: true,
+    keepPreviousData: !izyOrganizationId,
     staleTime: 5 * 60 * 1000,
     cacheTime: 30 * 60 * 1000,
     ...config,
@@ -45,14 +46,16 @@ export const useProjectQuery = (
   projectId?: string | null,
   config?: UseQueryOptions<TChatProject>,
 ): QueryObserverResult<TChatProject, unknown> => {
+  const izyOrganizationId = useIzyOrganizationQueryScope();
+
   return useQuery<TChatProject>(
-    [QueryKeys.project, projectId],
+    [QueryKeys.project, projectId, izyOrganizationId],
     () => dataService.getProjectById(projectId ?? ''),
     {
       enabled: Boolean(projectId),
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
-      refetchOnMount: false,
+      refetchOnMount: izyOrganizationId ? true : false,
       ...config,
     },
   );
@@ -74,8 +77,10 @@ export const useProjectFilesQuery = (
   projectId?: string | null,
   config?: UseQueryOptions<TChatProjectFile[]>,
 ): QueryObserverResult<TChatProjectFile[], unknown> => {
+  const izyOrganizationId = useIzyOrganizationQueryScope();
+
   return useQuery<TChatProjectFile[]>(
-    [QueryKeys.projectFiles, projectId],
+    [QueryKeys.projectFiles, projectId, izyOrganizationId],
     () => dataService.getProjectFiles(projectId ?? ''),
     {
       enabled: Boolean(projectId),
@@ -90,9 +95,10 @@ export const useProjectAvailableFilesInfiniteQuery = (
   config?: UseInfiniteQueryOptions<ProjectAvailableFilesResponse, unknown>,
 ) => {
   const queryParams = { limit: params.limit, search: params.search };
+  const izyOrganizationId = useIzyOrganizationQueryScope();
 
   return useInfiniteQuery<ProjectAvailableFilesResponse>({
-    queryKey: [QueryKeys.projectAvailableFiles, projectId, queryParams],
+    queryKey: [QueryKeys.projectAvailableFiles, projectId, queryParams, izyOrganizationId],
     queryFn: ({ pageParam }) =>
       dataService.getAvailableProjectFiles(projectId ?? '', {
         ...queryParams,
