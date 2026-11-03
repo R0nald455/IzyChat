@@ -613,6 +613,8 @@
   "com_ui_attach_error_type": "Tipo de archivo no compatible con el endpoint:",
   "com_ui_attach_remove": "Eliminar archivo",
   "com_ui_composer_palette": "Adjuntar y herramientas",
+  "com_ui_composer_attach": "Adjuntar",
+  "com_ui_composer_files": "Tus archivos",
   "com_ui_composer_palette_attach": "Adjuntar",
   "com_ui_composer_palette_help": "Use las flechas para navegar, Enter para seleccionar y {{0}}+D para favoritos.",
   "com_ui_composer_palette_help_attach": "Use las flechas para navegar y Enter para seleccionar.",
