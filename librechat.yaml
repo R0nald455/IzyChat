@@ -511,7 +511,9 @@ actions:
 mcpSettings:
   allowedAddresses:
     - 'browser-mcp:8932'
-    - 'izytesting-mcp:8787'
+    # IzyTesting MCP is served by its own stack (../izytesting-mcp) behind Caddy
+    # on host port 9085. IZYTESTING_MCP_URL=http://host.docker.internal:9085/mcp
+    - 'host.docker.internal:9085'
 
 # Example MCP Servers Object Structure
 # mcpServers:
