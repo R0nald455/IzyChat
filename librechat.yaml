@@ -137,7 +137,7 @@ mcpServers:
   # cliente es LibreChat. La identidad es el access token OIDC de quien llama.
   izytesting:
     title: IzyTesting
-    description: Requerimientos, casos, bugs y automatización de IzyTesting
+    description: Requerimientos, casos, bugs, automatización y documentos del proyecto de IzyTesting
     type: streamable-http
     url: ${IZYTESTING_MCP_URL}
     startup: false
