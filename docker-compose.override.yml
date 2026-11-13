@@ -24,49 +24,16 @@ services:
       - mongodb
       - rag_api
       - browser-mcp
-      - izytesting-mcp
     volumes:
     - type: bind
       source: ./librechat.yaml
       target: /app/librechat.yaml
 
-  # El MCP de IzyTesting como servicio compartido.
-  #
-  # Antes era `stdio`: LibreChat lanzaba `npx -y @izytesting/izytesting-mcp` una
-  # vez por usuario, con la API key de esa persona en el entorno. Un servicio
-  # unico se administra de forma central. La llave va en X-Izy-Mcp-Key y el
-  # proceso actua como el access token OIDC de quien llama. Sin AUTH_MODE,
-  # mcp-qa arranca en passthrough y no usa IZYTESTING_TOKEN.
-  #
-  # No publica puertos: solo se alcanza desde la red interna de compose, y
-  # `mcpSettings.allowedAddresses` limita a que host puede hablar LibreChat.
-  # Corre el codigo local (o del repo hermano), no el paquete de npm. Cuando
-  # haga falta, esto puede pasar a
-  # `npx -y --package=@izytesting/izytesting-mcp@<version> izytesting-mcp-http`
-  # y el volumen sale.
-  izytesting-mcp:
-    image: node:20-alpine
-    container_name: izytesting-mcp
-    init: true
-    restart: unless-stopped
-    working_dir: /app
-    command: ["node", "bin/izytesting-mcp-http.js"]
-    volumes:
-      - type: bind
-        source: ../izytesting-mcp
-        target: /app
-        read_only: true
-    env_file:
-      - ../izytesting-mcp/.env
-    environment:
-      IZYTESTING_URL: ${IZYTESTING_URL}
-      # Secreto compartido con LibreChat: responde "este cliente es LibreChat",
-      # no "quien es el usuario". El mismo valor va en librechat.yaml.
-      IZYTESTING_HTTP_KEY: ${IZYTESTING_HTTP_KEY}
-      IZYTESTING_HTTP_HOST: 0.0.0.0
-      IZYTESTING_HTTP_PORT: "8787"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  # El MCP de IzyTesting ya no se construye aqui. Corre en su propio stack
+  # (../izytesting-mcp: docker compose up -d) detras de Caddy en el puerto 9085
+  # del host. LibreChat llega por host.docker.internal (ver extra_hosts):
+  #   IZYTESTING_MCP_URL=http://host.docker.internal:9085/mcp
+  # IZYTESTING_HTTP_KEY debe tener el mismo valor en ambos .env.
 
   browser-mcp:
     build:
